@@ -1,139 +1,184 @@
-name: Actualizar Repositório APT DCP-o-matic
+name: Publicar Repositório APT DCP-o-matic
 
 on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Forçar publicação mesmo que a versão seja igual'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
 
 jobs:
-  actualizar:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout do repositório principal
+      - name: Checkout do repositório
         uses: actions/checkout@v4
-
-      - name: Preparar directório do repositório APT
-        run: |
-          mkdir apt-repo
-          cd apt-repo
-          git init
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git fetch origin gh-pages || true
-          git checkout -b gh-pages origin/gh-pages || git checkout -b gh-pages
 
       - name: Instalar ferramentas
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg curl jq git-lfs
+          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg
           pip3 install curl_cffi --break-system-packages
 
-      - name: Inicializar Git LFS no gh-pages
-        working-directory: ./apt-repo
-        run: |
-          git lfs install
-          git lfs track "*.deb"
-          git add .gitattributes
-          git commit -m "Inicializar Git LFS para ficheiros .deb" || echo "Já inicializado"
-
-      - name: Obter a versão estável actual
+      - name: Obter versão estável actual
         id: get_version
         run: |
-          python3 -c "
-          import json, urllib.request
-          url = 'https://api.github.com/repos/cth103/dcpomatic/tags?per_page=50'
-          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-          data = json.loads(urllib.request.urlopen(req).read())
-          for tag in data:
-              name = tag['name']
-              if name.startswith('v') and '.' in name[1:]:
-                  parts = name[1:].split('.')
-                  if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
-                      if int(parts[1]) % 2 == 0:
-                          print(f'VERSION={name[1:]}')
-                          break
-          " >> $GITHUB_OUTPUT
+          python3 << 'PYEOF' >> "$GITHUB_OUTPUT"
+          import json
+          import urllib.request
 
-      - name: Verificar alterações
+          url = "https://api.github.com/repos/cth103/dcpomatic/tags?per_page=50"
+          req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+          data = json.loads(urllib.request.urlopen(req).read())
+
+          for tag in data:
+              name = tag["name"]
+
+              if not name.startswith("v"):
+                  continue
+
+              version = name[1:]
+              parts = version.split(".")
+
+              if len(parts) != 3:
+                  continue
+
+              major, minor, patch = parts
+
+              if not major.isdigit() or not minor.isdigit() or not patch.isdigit():
+                  continue
+
+              # No DCP-o-matic, versões com minor par são estáveis.
+              if int(minor) % 2 == 0:
+                  print(f"VERSION={version}")
+                  break
+          PYEOF
+
+      - name: Verificar versão actualmente publicada
         id: check_update
-        working-directory: ./apt-repo
+        env:
+          NEW_VERSION: ${{ steps.get_version.outputs.VERSION }}
+          FORCE_DEPLOY: ${{ github.event.inputs.force_deploy }}
         run: |
-          CURRENT_VERSION=""
-          [ -f version.txt ] && CURRENT_VERSION=$(cat version.txt)
-          NEW_VERSION="${{ steps.get_version.outputs.VERSION }}"
-          echo "Versão da API: '$NEW_VERSION' | Versão no repo: '$CURRENT_VERSION'"
-          if [ -z "$CURRENT_VERSION" ] || [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
-            echo "updated=true" >> $GITHUB_OUTPUT
+          echo "Nova versão detectada: $NEW_VERSION"
+
+          CURRENT_VERSION="$(curl -fsSL https://tiagocasalribeiro.github.io/dcpomatic-apt/version.txt || true)"
+
+          echo "Versão publicada actualmente: '$CURRENT_VERSION'"
+          echo "Forçar publicação: '$FORCE_DEPLOY'"
+
+          if [ "$FORCE_DEPLOY" = "true" ]; then
+            echo "Forçado manualmente."
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$CURRENT_VERSION" ]; then
+            echo "Ainda não há versão publicada."
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          elif [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+            echo "Há nova versão."
+            echo "updated=true" >> "$GITHUB_OUTPUT"
           else
-            echo "updated=false" >> $GITHUB_OUTPUT
+            echo "Sem alterações."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Criar estrutura do site APT
+        if: steps.check_update.outputs.updated == 'true'
+        run: |
+          mkdir -p site/pool/main/d/dcpomatic
+          mkdir -p site/dists/stable/main/binary-amd64
 
       - name: Descarregar pacote .deb
         if: steps.check_update.outputs.updated == 'true'
         id: download
-        working-directory: ./apt-repo
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
-          rm -f *.deb
+          cd site/pool/main/d/dcpomatic
+
           python3 << 'PYEOF'
-          import os, re
+          import os
+          import re
           from curl_cffi import requests
 
           version = os.environ["VERSION"]
           base = f"https://dcpomatic.com/dl?id=debian-13-x86&version={version}"
+
           s = requests.Session()
 
+          print("Passo 1: obter cookie de sessão...")
           s.get(base + "&paid=0", impersonate="chrome")
-          s.get(base + "&paid=0", impersonate="chrome")
-          r3 = s.get(base, impersonate="chrome")
 
-          cd = r3.headers.get("content-disposition", "")
+          print("Passo 2: passar pela página de doação...")
+          s.get(base + "&paid=0", impersonate="chrome")
+
+          print("Passo 3: descarregar o pacote real...")
+          r = s.get(base, impersonate="chrome")
+
+          cd = r.headers.get("content-disposition", "")
           m = re.search(r'filename="([^"]+)"', cd)
           filename = m.group(1) if m else f"dcpomatic_{version}_amd64.deb"
 
+          if not r.content.startswith(b"!<arch>"):
+              raise SystemExit("ERRO: o ficheiro descarregado não é um pacote Debian válido")
+
           with open(filename, "wb") as f:
-              f.write(r3.content)
+              f.write(r.content)
+
+          print(f"Ficheiro guardado: {filename}")
+          print(f"Tamanho: {len(r.content)} bytes")
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"FILENAME={filename}\n")
           PYEOF
 
-          echo "${{ steps.get_version.outputs.VERSION }}" > version.txt
-
       - name: Importar chave GPG
         if: steps.check_update.outputs.updated == 'true'
-        working-directory: ./apt-repo
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "ERRO: segredo GPG_PRIVATE_KEY não definido."
+            exit 1
+          fi
+
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          GPG_KEY_ID=$(gpg --list-keys --with-colons | awk -F: '/^pub:/ {print $5; exit}')
-          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
-          gpg --export --armor "$GPG_KEY_ID" > dcpomatic-apt.asc
 
-      - name: Gerar metadados APT e assinar com GPG
+          GPG_KEY_ID="$(gpg --list-keys --with-colons | awk -F: '/^pub:/ {print $5; exit}')"
+
+          if [ -z "$GPG_KEY_ID" ]; then
+            echo "ERRO: não foi possível obter o ID da chave GPG."
+            exit 1
+          fi
+
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> "$GITHUB_ENV"
+
+          gpg --export --armor "$GPG_KEY_ID" > site/dcpomatic-apt.asc
+
+      - name: Gerar metadados APT
         if: steps.check_update.outputs.updated == 'true'
-        working-directory: ./apt-repo
         env:
-          FILENAME: ${{ steps.download.outputs.FILENAME }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
-          # Criar estrutura dists/stable/main/binary-amd64
-          mkdir -p dists/stable/main/binary-amd64
+          cd site
 
-          # Gerar Packages com o Filename: como caminho relativo
-          dpkg-scanpackages . /dev/null 2>/dev/null \
-            | sed "s|^Filename: \./.*|Filename: $FILENAME|" \
-            > dists/stable/main/binary-amd64/Packages
+          echo "$VERSION" > version.txt
 
-          gzip -9c dists/stable/main/binary-amd64/Packages \
-            > dists/stable/main/binary-amd64/Packages.gz
+          dpkg-scanpackages pool /dev/null > dists/stable/main/binary-amd64/Packages
+          gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
 
-          # Configuração do apt-ftparchive
           cat > apt-ftparchive.conf << EOF
           APT::FTPArchive::Release::Origin "DCP-o-matic APT Repository";
           APT::FTPArchive::Release::Label "DCP-o-matic";
@@ -143,60 +188,45 @@ jobs:
           APT::FTPArchive::Release::Components "main";
           EOF
 
-          # Gerar Release dentro de dists/stable
           cd dists/stable
           apt-ftparchive release -c=../../apt-ftparchive.conf . > Release
 
-          # Assinar os metadados
           gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
+
           cd ../..
 
-          echo "=== Conteúdo do Packages ==="
-          cat dists/stable/main/binary-amd64/Packages | grep -E "^(Package|Version|Filename):"
+          echo "=== Packages ==="
+          grep -E "^(Package|Version|Architecture|Filename|Size|SHA256):" dists/stable/main/binary-amd64/Packages
 
-      - name: Limpar releases antigas
-        if: steps.check_update.outputs.updated == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release list --limit 100 --json tagName,createdAt \
-            | python3 -c "
-          import sys, json
-          releases = json.load(sys.stdin)
-          releases.sort(key=lambda x: x['createdAt'], reverse=True)
-          for r in releases[3:]:
-              print(r['tagName'])
-          " | while read TAG; do
-              gh release delete "$TAG" --yes --cleanup-tag || true
-          done
+          echo ""
+          echo "=== Estrutura final ==="
+          find . -type f -maxdepth 6 -printf '%p %s bytes\n'
 
-      - name: Commit e Push dos metadados e .deb para gh-pages (com LFS)
+      - name: Configurar GitHub Pages
         if: steps.check_update.outputs.updated == 'true'
-        working-directory: ./apt-repo
-        env:
-          GIT_LFS_SKIP_SMUDGE: 0
-        run: |
-          # Adicionar todos os ficheiros (incluindo .deb via LFS)
-          git add -f .gitattributes *.deb dists/ dcpomatic-apt.asc version.txt
-          
-          # Commit com o .deb (Git LFS faz o upload automático)
-          git commit -m "Actualizar metadados e pacote para DCP-o-matic ${{ steps.get_version.outputs.VERSION }}"
-          
-          # Push com LFS
-          git push origin gh-pages
+        uses: actions/configure-pages@v5
 
-      - name: Criar Release (backup)
+      - name: Upload do artifact do GitHub Pages
         if: steps.check_update.outputs.updated == 'true'
-        working-directory: ./apt-repo
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.get_version.outputs.VERSION }}
-          FILENAME: ${{ steps.download.outputs.FILENAME }}
-        run: |
-          TAG="v${VERSION}"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" \
-            --title "DCP-o-matic $VERSION" \
-            --notes "Pacote Debian 13 (amd64) do DCP-o-matic $VERSION" \
-            "$FILENAME" || echo "Falha ao criar release (backup)"
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Publicar no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
