@@ -1,0 +1,73 @@
+name: Actualizar Repositório APT DCP-o-matic
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Corre diariamente à meia-noite
+  workflow_dispatch:
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout do ramo gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Instalar ferramentas APT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils dpkg-dev
+
+      - name: Obter a versão actual
+        id: get_version
+        run: |
+          VERSION=$(curl -s https://dcpomatic.com/download | grep -oP 'Stable release: \K[0-9a-zA-Z\.\-]+' | head -n 1)
+          echo "Versão encontrada: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verificar alterações
+        id: check_update
+        run: |
+          CURRENT_VERSION=""
+          if [ -f version.txt ]; then
+            CURRENT_VERSION=$(cat version.txt)
+          fi
+          
+          if [ "$CURRENT_VERSION" == "${{ steps.get_version.outputs.version }}" ]; then
+            echo "Sem alterações na versão."
+            echo "updated=false" >> $GITHUB_OUTPUT
+          else
+            echo "Nova versão detectada!"
+            echo "updated=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Descarregar pacote .deb
+        if: steps.check_update.outputs.updated == 'true'
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          rm -f *.deb
+          
+          # Descarrega o ficheiro contornando o ecrã de doação
+          wget -U "Wget/1.21" -O "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0"
+          
+          echo "$VERSION" > version.txt
+
+      - name: Gerar metadados APT
+        if: steps.check_update.outputs.updated == 'true'
+        run: |
+          dpkg-scanpackages . /dev/null > Packages
+          gzip -9c Packages > Packages.gz
+          apt-ftparchive release . > Release
+
+      - name: Commit e Push
+        if: steps.check_update.outputs.updated == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f *.deb Packages Packages.gz Release version.txt
+          git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.version }}"
+          git push origin gh-pages
