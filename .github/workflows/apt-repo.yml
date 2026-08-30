@@ -29,7 +29,7 @@ jobs:
       - name: Instalar ferramentas
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils dpkg-dev python3-pip
+          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg
           pip3 install curl_cffi --break-system-packages
 
       - name: Obter a versão estável actual
@@ -80,13 +80,8 @@ jobs:
           base = f"https://dcpomatic.com/dl?id=debian-13-x86&version={version}"
           s = requests.Session()
 
-          print("Passo 1: a obter cookie de sessão...")
           s.get(base + "&paid=0", impersonate="chrome")
-
-          print("Passo 2: a passar pela página de doação...")
           s.get(base + "&paid=0", impersonate="chrome")
-
-          print("Passo 3: a descarregar o .deb...")
           r3 = s.get(base, impersonate="chrome")
 
           cd = r3.headers.get("content-disposition", "")
@@ -95,9 +90,7 @@ jobs:
 
           with open(filename, "wb") as f:
               f.write(r3.content)
-          print(f"Guardado: {filename} ({len(r3.content)} bytes)")
 
-          # Exportar nome do ficheiro para os próximos passos
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"FILENAME={filename}\n")
           PYEOF
@@ -113,21 +106,24 @@ jobs:
           FILENAME: ${{ steps.download.outputs.FILENAME }}
         run: |
           TAG="v${VERSION}"
-
-          # Apagar release existente se houver (para permitir re-execuções)
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-
-          # Criar release e fazer upload do asset
           gh release create "$TAG" \
             --title "DCP-o-matic $VERSION" \
-            --notes "Pacote Debian 13 (amd64) do DCP-o-matic $VERSION, obtido automaticamente de dcpomatic.com" \
+            --notes "Pacote Debian 13 (amd64) do DCP-o-matic $VERSION" \
             "$FILENAME"
 
-          # Verificar se o upload foi bem sucedido
-          echo "Asset URL:"
-          gh release view "$TAG" --json assets --jq '.assets[].url'
+      - name: Importar chave GPG e exportar chave pública
+        if: steps.check_update.outputs.updated == 'true'
+        working-directory: ./apt-repo
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          GPG_KEY_ID=$(gpg --list-keys --with-colons | awk -F: '/^pub:/ {print $5; exit}')
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
+          gpg --export --armor "$GPG_KEY_ID" > dcpomatic-apt.asc
 
-      - name: Gerar metadados APT com URLs absolutos
+      - name: Gerar metadados APT e assinar com GPG
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         env:
@@ -135,42 +131,32 @@ jobs:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
           FILENAME: ${{ steps.download.outputs.FILENAME }}
         run: |
-          # Obter URL de download do asset da release
           TAG="v${VERSION}"
           ASSET_URL=$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$FILENAME\") | .url")
-
+          
           if [ -z "$ASSET_URL" ]; then
             echo "ERRO: não foi possível obter URL do asset"
             exit 1
           fi
 
-          echo "URL do asset: $ASSET_URL"
-
-          # Gerar Packages e substituir o Filename: pelo URL absoluto
           dpkg-scanpackages . /dev/null 2>/dev/null > Packages.raw
-
-          # Substituir a linha Filename: pelo URL absoluto
           sed "s|^Filename: \./.*|Filename: ${ASSET_URL}|" Packages.raw > Packages
           rm Packages.raw
 
-          # Gerar Packages.gz e Release
           gzip -9c Packages > Packages.gz
           apt-ftparchive release . > Release
+          
+          # Assinar os metadados
+          gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
+          gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
 
-          # Remover o .deb do directório (não fazemos commit dele para o gh-pages)
           rm -f "$FILENAME"
-
-          echo "=== Packages ==="
-          cat Packages
-          echo ""
-          ls -lh
 
       - name: Limpar releases antigas
         if: steps.check_update.outputs.updated == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Manter apenas as 3 releases mais recentes
           gh release list --limit 100 --json tagName,createdAt \
             | python3 -c "
           import sys, json
@@ -179,7 +165,6 @@ jobs:
           for r in releases[3:]:
               print(r['tagName'])
           " | while read TAG; do
-              echo "A apagar release antiga: $TAG"
               gh release delete "$TAG" --yes --cleanup-tag || true
           done
 
@@ -187,6 +172,6 @@ jobs:
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         run: |
-          git add -f Packages Packages.gz Release version.txt
+          git add -f Packages Packages.gz Release InRelease Release.gpg dcpomatic-apt.asc version.txt
           git commit -m "Actualizar metadados para DCP-o-matic ${{ steps.get_version.outputs.VERSION }}"
           git push origin gh-pages
