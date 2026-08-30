@@ -12,10 +12,20 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout do ramo gh-pages
+      - name: Checkout do repositório principal
         uses: actions/checkout@v4
-        with:
-          ref: gh-pages
+
+      - name: Preparar directório do repositório APT
+        run: |
+          mkdir apt-repo
+          cd apt-repo
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          # Tentar ir buscar o ramo gh-pages se já existir
+          git fetch origin gh-pages || true
+          git checkout -b gh-pages origin/gh-pages || git checkout -b gh-pages
 
       - name: Instalar ferramentas APT
         run: |
@@ -31,6 +41,7 @@ jobs:
 
       - name: Verificar alterações
         id: check_update
+        working-directory: ./apt-repo
         run: |
           CURRENT_VERSION=""
           if [ -f version.txt ]; then
@@ -47,27 +58,31 @@ jobs:
 
       - name: Descarregar pacote .deb
         if: steps.check_update.outputs.updated == 'true'
+        working-directory: ./apt-repo
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           rm -f *.deb
           
-          # Descarrega o ficheiro contornando o ecrã de doação
-          wget -U "Wget/1.21" -O "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0"
+          # Descarrega o ficheiro contornando o ecrã de doação (wget e curl como fallback)
+          wget -U "Wget/1.21" -O "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0" || {
+            echo "Falha no wget. A tentar com curl..."
+            curl -L -A "Wget/1.21" -o "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0"
+          }
           
           echo "$VERSION" > version.txt
 
       - name: Gerar metadados APT
         if: steps.check_update.outputs.updated == 'true'
+        working-directory: ./apt-repo
         run: |
           dpkg-scanpackages . /dev/null > Packages
           gzip -9c Packages > Packages.gz
           apt-ftparchive release . > Release
 
-      - name: Commit e Push
+      - name: Commit e Push para gh-pages
         if: steps.check_update.outputs.updated == 'true'
+        working-directory: ./apt-repo
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add -f *.deb Packages Packages.gz Release version.txt
-          git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.version }}"
+          git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.version }}" || echo "Sem alterações para commit"
           git push origin gh-pages
