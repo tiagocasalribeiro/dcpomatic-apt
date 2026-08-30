@@ -32,24 +32,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y apt-utils dpkg-dev
 
-      - name: Obter a versão actual
+      - name: Obter a versão actual via GitHub API
         id: get_version
         run: |
-          # Obter o HTML e extrair a versão usando sed (mais compatível)
-          HTML=$(curl -s https://dcpomatic.com/download)
-          VERSION=$(echo "$HTML" | grep "Stable release:" | sed -n 's/.*Stable release: \([0-9a-zA-Z\.\-]*\).*/\1/p' | head -n 1)
-          
-          echo "HTML obtido (primeiros 500 caracteres):"
-          echo "$HTML" | head -c 500
-          echo ""
-          echo "Versão encontrada: '$VERSION'"
-          
-          if [ -z "$VERSION" ]; then
-            echo "ERRO: Não foi possível extrair a versão!"
-            exit 1
-          fi
-          
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Consulta a API do GitHub e filtra a tag estável mais recente (número menor par)
+          python3 -c "
+          import json, urllib.request
+          url = 'https://api.github.com/repos/cth103/dcpomatic/tags?per_page=50'
+          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+          data = json.loads(urllib.request.urlopen(req).read())
+          for tag in data:
+              name = tag['name']
+              if name.startswith('v') and '.' in name[1:]:
+                  parts = name[1:].split('.')
+                  if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+                      minor = int(parts[1])
+                      if minor % 2 == 0:
+                          print(f'VERSION={name[1:]}')
+                          break
+          " >> $GITHUB_OUTPUT
 
       - name: Verificar alterações
         id: check_update
@@ -60,9 +61,9 @@ jobs:
             CURRENT_VERSION=$(cat version.txt)
           fi
           
-          NEW_VERSION="${{ steps.get_version.outputs.version }}"
+          NEW_VERSION="${{ steps.get_version.outputs.VERSION }}"
           
-          echo "Versão actual (do site): '$NEW_VERSION'"
+          echo "Versão actual (da API): '$NEW_VERSION'"
           echo "Versão no repositório: '$CURRENT_VERSION'"
           
           if [ -z "$CURRENT_VERSION" ]; then
@@ -80,7 +81,7 @@ jobs:
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         run: |
-          VERSION="${{ steps.get_version.outputs.version }}"
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
           rm -f *.deb
           
           echo "A descarregar DCP-o-matic versão $VERSION..."
@@ -91,7 +92,6 @@ jobs:
             curl -L -A "Wget/1.21" -o "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0"
           }
           
-          # Verificar se o ficheiro foi descarregado correctamente
           if [ -f "dcpomatic_${VERSION}_amd64.deb" ]; then
             echo "Ficheiro descarregado com sucesso. Tamanho: $(ls -lh dcpomatic_${VERSION}_amd64.deb | awk '{print $5}')"
           else
@@ -117,6 +117,6 @@ jobs:
         working-directory: ./apt-repo
         run: |
           git add -f *.deb Packages Packages.gz Release version.txt
-          git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.version }}" || echo "Sem alterações para commit"
+          git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.VERSION }}" || echo "Sem alterações para commit"
           git push origin gh-pages
           echo "Commit e push concluídos"
