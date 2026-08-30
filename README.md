@@ -80,47 +80,12 @@ gh-pages/
 └── version.txt     # última versão publicada
 ```
 
-## Requisitos
-
-- Uma conta no GitHub;
-- Um repositório próprio com este fluxo de trabalho;
-- Permissões de escrita para o GitHub Actions (`contents: write`);
-- GitHub Pages activado no ramo `gh-pages`.
-
-## Instalação e configuração
-
-### 1. Criar o repositório
-
-Cria um repositório novo (p. ex. `dcpomatic-apt`) e copia o ficheiro
-`.github/workflows/apt-repo.yml` deste projecto.
-
-### 2. Permissões do fluxo de trabalho
-
-Em **Settings → Actions → General → Workflow permissions**, selecciona
-*Read and write permissions* e guarda.
-
-### 3. Primeira execução
-
-Em **Actions → Actualizar Repositório APT DCP-o-matic → Run workflow**,
-executa o fluxo manualmente. Na primeira execução são criados:
-
-- a *release* `v<VERSÃO>` com o `.deb`;
-- o ramo `gh-pages` com os metadados APT.
-
-### 4. Activar o GitHub Pages
-
-Em **Settings → Pages**, escolhe *Deploy from a branch*, selecciona o ramo
-`gh-pages` e a pasta `/ (root)`, e guarda. Aguarda alguns minutos até à
-publicação em `https://<UTILIZADOR>.github.io/<REPOSITORIO>/`.
-
-## Utilização no cliente
-
-### Formato clássico (uma linha)
+## Instalação no cliente
 
 Cria o ficheiro `/etc/apt/sources.list.d/dcpomatic.list`:
 
 ```bash
-echo "deb [trusted=yes] https://<UTILIZADOR>.github.io/<REPOSITORIO>/ ./" \
+echo "deb [trusted=yes] https://tiagocasalribeiro.github.io/dcpomatic-apt/ ./" \
   | sudo tee /etc/apt/sources.list.d/dcpomatic.list
 ```
 
@@ -135,7 +100,7 @@ Em alternativa, cria `/etc/apt/sources.list.d/dcpomatic.sources`:
 
 ```
 Types: deb
-URIs: https://<UTILIZADOR>.github.io/<REPOSITORIO>/
+URIs: https://tiagocasalribeiro.github.io/dcpomatic-apt/
 Suites: ./
 Trusted: yes
 ```
@@ -162,7 +127,7 @@ sudo apt update && sudo apt upgrade
 
 ## Assinatura GPG (opcional)
 
-Para assinar o repositório e remover o `[trusted=yes]]`:
+Para assinar o repositório e remover o `[trusted=yes]`:
 
 1. Gera uma chave e exporta-a:
 
@@ -202,9 +167,6 @@ Para assinar o repositório e remover o `[trusted=yes]]`:
 | `This exceeds GitHub's file size limit of 100 MB` | O `.deb` foi cometido para o Git | O `.deb` deve ir **apenas** para a release, nunca para o `gh-pages` |
 | A versão não muda apesar de novo lançamento | Atraso do cron ou etiqueta ainda não criada no GitHub | Executar o fluxo manualmente |
 | *Release* já existe ao reexecutar | Reexecução manual | O fluxo apaga e recria a release automaticamente |
-
-> O cron do GitHub pode sofrer atrasos em horas de pico; para uma verificação
-> diária, tal não é crítico.
 
 ## Limitações
 
