@@ -35,8 +35,20 @@ jobs:
       - name: Obter a versão actual
         id: get_version
         run: |
-          VERSION=$(curl -s https://dcpomatic.com/download | grep -oP 'Stable release: \K[0-9a-zA-Z\.\-]+' | head -n 1)
-          echo "Versão encontrada: $VERSION"
+          # Obter o HTML e extrair a versão usando sed (mais compatível)
+          HTML=$(curl -s https://dcpomatic.com/download)
+          VERSION=$(echo "$HTML" | grep "Stable release:" | sed -n 's/.*Stable release: \([0-9a-zA-Z\.\-]*\).*/\1/p' | head -n 1)
+          
+          echo "HTML obtido (primeiros 500 caracteres):"
+          echo "$HTML" | head -c 500
+          echo ""
+          echo "Versão encontrada: '$VERSION'"
+          
+          if [ -z "$VERSION" ]; then
+            echo "ERRO: Não foi possível extrair a versão!"
+            exit 1
+          fi
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Verificar alterações
@@ -48,7 +60,15 @@ jobs:
             CURRENT_VERSION=$(cat version.txt)
           fi
           
-          if [ "$CURRENT_VERSION" == "${{ steps.get_version.outputs.version }}" ]; then
+          NEW_VERSION="${{ steps.get_version.outputs.version }}"
+          
+          echo "Versão actual (do site): '$NEW_VERSION'"
+          echo "Versão no repositório: '$CURRENT_VERSION'"
+          
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Primeira execução - forçar actualização"
+            echo "updated=true" >> $GITHUB_OUTPUT
+          elif [ "$CURRENT_VERSION" == "$NEW_VERSION" ]; then
             echo "Sem alterações na versão."
             echo "updated=false" >> $GITHUB_OUTPUT
           else
@@ -63,11 +83,21 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           rm -f *.deb
           
+          echo "A descarregar DCP-o-matic versão $VERSION..."
+          
           # Descarrega o ficheiro contornando o ecrã de doação (wget e curl como fallback)
           wget -U "Wget/1.21" -O "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0" || {
             echo "Falha no wget. A tentar com curl..."
             curl -L -A "Wget/1.21" -o "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0"
           }
+          
+          # Verificar se o ficheiro foi descarregado correctamente
+          if [ -f "dcpomatic_${VERSION}_amd64.deb" ]; then
+            echo "Ficheiro descarregado com sucesso. Tamanho: $(ls -lh dcpomatic_${VERSION}_amd64.deb | awk '{print $5}')"
+          else
+            echo "ERRO: Falha ao descarregar o ficheiro!"
+            exit 1
+          fi
           
           echo "$VERSION" > version.txt
 
@@ -75,9 +105,12 @@ jobs:
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         run: |
+          echo "A gerar metadados APT..."
           dpkg-scanpackages . /dev/null > Packages
           gzip -9c Packages > Packages.gz
           apt-ftparchive release . > Release
+          echo "Metadados gerados com sucesso"
+          ls -lh
 
       - name: Commit e Push para gh-pages
         if: steps.check_update.outputs.updated == 'true'
@@ -86,3 +119,4 @@ jobs:
           git add -f *.deb Packages Packages.gz Release version.txt
           git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.version }}" || echo "Sem alterações para commit"
           git push origin gh-pages
+          echo "Commit e push concluídos"
