@@ -26,13 +26,11 @@ jobs:
           git fetch origin gh-pages || true
           git checkout -b gh-pages origin/gh-pages || git checkout -b gh-pages
 
-      - name: Instalar ferramentas APT
+      - name: Instalar ferramentas
         run: |
           sudo apt-get update
           sudo apt-get install -y apt-utils dpkg-dev python3-pip
-
-      - name: Instalar curl_cffi
-        run: pip3 install curl_cffi --break-system-packages
+          pip3 install curl_cffi --break-system-packages
 
       - name: Obter a versão estável actual
         id: get_version
@@ -68,6 +66,7 @@ jobs:
 
       - name: Descarregar pacote .deb
         if: steps.check_update.outputs.updated == 'true'
+        id: download
         working-directory: ./apt-repo
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
@@ -81,19 +80,15 @@ jobs:
           base = f"https://dcpomatic.com/dl?id=debian-13-x86&version={version}"
           s = requests.Session()
 
-          # Passo 1: página de doação (obtém cookie PHPSESSID)
           print("Passo 1: a obter cookie de sessão...")
           s.get(base + "&paid=0", impersonate="chrome")
 
-          # Passo 2: "Your download should start soon"
           print("Passo 2: a passar pela página de doação...")
-          r2 = s.get(base + "&paid=0", impersonate="chrome")
+          s.get(base + "&paid=0", impersonate="chrome")
 
-          # Passo 3: download real (URL sem paid)
           print("Passo 3: a descarregar o .deb...")
           r3 = s.get(base, impersonate="chrome")
 
-          # Extrair nome do ficheiro do Content-Disposition
           cd = r3.headers.get("content-disposition", "")
           m = re.search(r'filename="([^"]+)"', cd)
           filename = m.group(1) if m else f"dcpomatic_{version}_amd64.deb"
@@ -101,23 +96,97 @@ jobs:
           with open(filename, "wb") as f:
               f.write(r3.content)
           print(f"Guardado: {filename} ({len(r3.content)} bytes)")
+
+          # Exportar nome do ficheiro para os próximos passos
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"FILENAME={filename}\n")
           PYEOF
 
           echo "${{ steps.get_version.outputs.VERSION }}" > version.txt
-          ls -lh *.deb
 
-      - name: Gerar metadados APT
+      - name: Criar Release e fazer upload do .deb
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          FILENAME: ${{ steps.download.outputs.FILENAME }}
         run: |
-          dpkg-scanpackages . /dev/null > Packages
+          TAG="v${VERSION}"
+
+          # Apagar release existente se houver (para permitir re-execuções)
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+
+          # Criar release e fazer upload do asset
+          gh release create "$TAG" \
+            --title "DCP-o-matic $VERSION" \
+            --notes "Pacote Debian 13 (amd64) do DCP-o-matic $VERSION, obtido automaticamente de dcpomatic.com" \
+            "$FILENAME"
+
+          # Verificar se o upload foi bem sucedido
+          echo "Asset URL:"
+          gh release view "$TAG" --json assets --jq '.assets[].url'
+
+      - name: Gerar metadados APT com URLs absolutos
+        if: steps.check_update.outputs.updated == 'true'
+        working-directory: ./apt-repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          FILENAME: ${{ steps.download.outputs.FILENAME }}
+        run: |
+          # Obter URL de download do asset da release
+          TAG="v${VERSION}"
+          ASSET_URL=$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$FILENAME\") | .url")
+
+          if [ -z "$ASSET_URL" ]; then
+            echo "ERRO: não foi possível obter URL do asset"
+            exit 1
+          fi
+
+          echo "URL do asset: $ASSET_URL"
+
+          # Gerar Packages e substituir o Filename: pelo URL absoluto
+          dpkg-scanpackages . /dev/null 2>/dev/null > Packages.raw
+
+          # Substituir a linha Filename: pelo URL absoluto
+          sed "s|^Filename: \./.*|Filename: ${ASSET_URL}|" Packages.raw > Packages
+          rm Packages.raw
+
+          # Gerar Packages.gz e Release
           gzip -9c Packages > Packages.gz
           apt-ftparchive release . > Release
 
-      - name: Commit e Push para gh-pages
+          # Remover o .deb do directório (não fazemos commit dele para o gh-pages)
+          rm -f "$FILENAME"
+
+          echo "=== Packages ==="
+          cat Packages
+          echo ""
+          ls -lh
+
+      - name: Limpar releases antigas
+        if: steps.check_update.outputs.updated == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Manter apenas as 3 releases mais recentes
+          gh release list --limit 100 --json tagName,createdAt \
+            | python3 -c "
+          import sys, json
+          releases = json.load(sys.stdin)
+          releases.sort(key=lambda x: x['createdAt'], reverse=True)
+          for r in releases[3:]:
+              print(r['tagName'])
+          " | while read TAG; do
+              echo "A apagar release antiga: $TAG"
+              gh release delete "$TAG" --yes --cleanup-tag || true
+          done
+
+      - name: Commit e Push dos metadados para gh-pages
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         run: |
-          git add -f *.deb Packages Packages.gz Release version.txt
-          git commit -m "Actualizar DCP-o-matic para ${{ steps.get_version.outputs.VERSION }}"
+          git add -f Packages Packages.gz Release version.txt
+          git commit -m "Actualizar metadados para DCP-o-matic ${{ steps.get_version.outputs.VERSION }}"
           git push origin gh-pages
