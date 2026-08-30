@@ -133,24 +133,38 @@ jobs:
         run: |
           TAG="v${VERSION}"
           ASSET_URL=$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$FILENAME\") | .url")
-          
+
           if [ -z "$ASSET_URL" ]; then
             echo "ERRO: não foi possível obter URL do asset"
             exit 1
           fi
 
-          dpkg-scanpackages . /dev/null 2>/dev/null > Packages.raw
-          sed "s|^Filename: \./.*|Filename: ${ASSET_URL}|" Packages.raw > Packages
-          rm Packages.raw
+          # Criar estrutura dists/stable
+          mkdir -p dists/stable
 
-          gzip -9c Packages > Packages.gz
-          apt-ftparchive release . > Release
-          
-          # Assinar os metadados
+          # Gerar Packages e substituir o Filename: pelo URL absoluto
+          dpkg-scanpackages . /dev/null 2>/dev/null > /tmp/packages.tmp
+          sed "s|^Filename: .*|Filename: ${ASSET_URL}|" /tmp/packages.tmp > dists/stable/Packages
+          gzip -9c dists/stable/Packages > dists/stable/Packages.gz
+
+          # Configuração do Release
+          cat > apt-ftparchive.conf << EOF
+          APT::FTPArchive::Release::Origin "DCP-o-matic APT Repository";
+          APT::FTPArchive::Release::Label "DCP-o-matic";
+          APT::FTPArchive::Release::Suite "stable";
+          APT::FTPArchive::Release::Codename "trixie";
+          APT::FTPArchive::Release::Architectures "amd64";
+          APT::FTPArchive::Release::Components "main";
+          EOF
+
+          # Gerar e assinar o Release
+          cd dists/stable
+          apt-ftparchive release -c=../../apt-ftparchive.conf . > Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
+          cd ../..
 
-          rm -f "$FILENAME"
+          rm -f "$FILENAME" apt-ftparchive.conf
 
       - name: Limpar releases antigas
         if: steps.check_update.outputs.updated == 'true'
@@ -172,6 +186,6 @@ jobs:
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         run: |
-          git add -f Packages Packages.gz Release InRelease Release.gpg dcpomatic-apt.asc version.txt
+          git add -f dists/stable/Packages dists/stable/Packages.gz dists/stable/Release dists/stable/InRelease dists/stable/Release.gpg dcpomatic-apt.asc version.txt
           git commit -m "Actualizar metadados para DCP-o-matic ${{ steps.get_version.outputs.VERSION }}"
           git push origin gh-pages
