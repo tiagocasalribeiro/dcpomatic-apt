@@ -20,21 +20,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  check-versions:
     runs-on: ubuntu-latest
+    outputs:
+      stable_version: ${{ steps.get_versions.outputs.STABLE_VERSION }}
+      testing_version: ${{ steps.get_versions.outputs.TESTING_VERSION }}
+      stable_updated: ${{ steps.check_stable.outputs.updated }}
+      testing_updated: ${{ steps.check_testing.outputs.updated }}
 
     steps:
-      - name: Checkout do repositório
-        uses: actions/checkout@v4
-
-      - name: Instalar ferramentas
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg
-          pip3 install curl_cffi --break-system-packages
-
-      - name: Obter versão estável actual
-        id: get_version
+      - name: Obter versões stable e testing
+        id: get_versions
         run: |
           python3 << 'PYEOF' >> "$GITHUB_OUTPUT"
           import json
@@ -43,6 +39,9 @@ jobs:
           url = "https://api.github.com/repos/cth103/dcpomatic/tags?per_page=50"
           req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
           data = json.loads(urllib.request.urlopen(req).read())
+
+          stable_version = ""
+          testing_version = ""
 
           for tag in data:
               name = tag["name"]
@@ -61,50 +60,101 @@ jobs:
               if not major.isdigit() or not minor.isdigit() or not patch.isdigit():
                   continue
 
-              # No DCP-o-matic, versões com minor par são estáveis.
-              if int(minor) % 2 == 0:
-                  print(f"VERSION={version}")
+              minor_int = int(minor)
+
+              # No DCP-o-matic, versões com minor par são estáveis, ímpar são de teste.
+              if minor_int % 2 == 0:
+                  if not stable_version:
+                      stable_version = version
+              else:
+                  if not testing_version:
+                      testing_version = version
+
+              # Se já encontrámos ambas, podemos parar
+              if stable_version and testing_version:
                   break
+
+          print(f"STABLE_VERSION={stable_version}")
+          print(f"TESTING_VERSION={testing_version}")
           PYEOF
 
-      - name: Verificar versão actualmente publicada
-        id: check_update
+      - name: Verificar versão stable actualmente publicada
+        id: check_stable
         env:
-          NEW_VERSION: ${{ steps.get_version.outputs.VERSION }}
+          NEW_VERSION: ${{ steps.get_versions.outputs.STABLE_VERSION }}
           FORCE_DEPLOY: ${{ github.event.inputs.force_deploy }}
         run: |
-          echo "Nova versão detectada: $NEW_VERSION"
+          echo "Nova versão stable detectada: $NEW_VERSION"
 
-          CURRENT_VERSION="$(curl -fsSL https://tiagocasalribeiro.github.io/dcpomatic-apt/version.txt || true)"
+          CURRENT_VERSION="$(curl -fsSL https://tiagocasalribeiro.github.io/dcpomatic-apt/stable-version.txt || true)"
 
-          echo "Versão publicada actualmente: '$CURRENT_VERSION'"
-          echo "Forçar publicação: '$FORCE_DEPLOY'"
+          echo "Versão stable publicada actualmente: '$CURRENT_VERSION'"
 
           if [ "$FORCE_DEPLOY" = "true" ]; then
             echo "Forçado manualmente."
             echo "updated=true" >> "$GITHUB_OUTPUT"
           elif [ -z "$CURRENT_VERSION" ]; then
-            echo "Ainda não há versão publicada."
+            echo "Ainda não há versão stable publicada."
             echo "updated=true" >> "$GITHUB_OUTPUT"
           elif [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
-            echo "Há nova versão."
+            echo "Há nova versão stable."
             echo "updated=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Sem alterações."
+            echo "Sem alterações na stable."
             echo "updated=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verificar versão testing actualmente publicada
+        id: check_testing
+        env:
+          NEW_VERSION: ${{ steps.get_versions.outputs.TESTING_VERSION }}
+          FORCE_DEPLOY: ${{ github.event.inputs.force_deploy }}
+        run: |
+          echo "Nova versão testing detectada: $NEW_VERSION"
+
+          CURRENT_VERSION="$(curl -fsSL https://tiagocasalribeiro.github.io/dcpomatic-apt/testing-version.txt || true)"
+
+          echo "Versão testing publicada actualmente: '$CURRENT_VERSION'"
+
+          if [ "$FORCE_DEPLOY" = "true" ]; then
+            echo "Forçado manualmente."
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$CURRENT_VERSION" ]; then
+            echo "Ainda não há versão testing publicada."
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          elif [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+            echo "Há nova versão testing."
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Sem alterações na testing."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check-versions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar ferramentas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg
+          pip3 install curl_cffi --break-system-packages
+
       - name: Criar estrutura do site APT
-        if: steps.check_update.outputs.updated == 'true'
         run: |
           mkdir -p site/pool/main/d/dcpomatic
           mkdir -p site/dists/stable/main/binary-amd64
+          mkdir -p site/dists/testing/main/binary-amd64
 
-      - name: Descarregar pacote .deb
-        if: steps.check_update.outputs.updated == 'true'
-        id: download
+      - name: Descarregar pacote stable
+        if: needs.check-versions.outputs.stable_updated == 'true'
+        id: download_stable
         env:
-          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          VERSION: ${{ needs.check-versions.outputs.stable_version }}
         run: |
           cd site/pool/main/d/dcpomatic
 
@@ -118,13 +168,9 @@ jobs:
 
           s = requests.Session()
 
-          print("Passo 1: obter cookie de sessão...")
+          print(f"Stable: a descarregar versão {version}...")
           s.get(base + "&paid=0", impersonate="chrome")
-
-          print("Passo 2: passar pela página de doação...")
           s.get(base + "&paid=0", impersonate="chrome")
-
-          print("Passo 3: descarregar o pacote real...")
           r = s.get(base, impersonate="chrome")
 
           cd = r.headers.get("content-disposition", "")
@@ -144,8 +190,48 @@ jobs:
               f.write(f"FILENAME={filename}\n")
           PYEOF
 
+      - name: Descarregar pacote testing
+        if: needs.check-versions.outputs.testing_updated == 'true'
+        id: download_testing
+        env:
+          VERSION: ${{ needs.check-versions.outputs.testing_version }}
+        run: |
+          cd site/pool/main/d/dcpomatic
+
+          python3 << 'PYEOF'
+          import os
+          import re
+          from curl_cffi import requests
+
+          version = os.environ["VERSION"]
+          base = f"https://dcpomatic.com/dl?id=debian-13-x86&version={version}"
+
+          s = requests.Session()
+
+          print(f"Testing: a descarregar versão {version}...")
+          s.get(base + "&paid=0", impersonate="chrome")
+          s.get(base + "&paid=0", impersonate="chrome")
+          r = s.get(base, impersonate="chrome")
+
+          cd = r.headers.get("content-disposition", "")
+          m = re.search(r'filename="([^"]+)"', cd)
+          filename = m.group(1) if m else f"dcpomatic-test_{version}_amd64.deb"
+
+          if not r.content.startswith(b"!<arch>"):
+              raise SystemExit("ERRO: o ficheiro descarregado não é um pacote Debian válido")
+
+          with open(filename, "wb") as f:
+              f.write(r.content)
+
+          print(f"Ficheiro guardado: {filename}")
+          print(f"Tamanho: {len(r.content)} bytes")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"FILENAME={filename}\n")
+          PYEOF
+
       - name: Importar chave GPG
-        if: steps.check_update.outputs.updated == 'true'
+        if: needs.check-versions.outputs.stable_updated == 'true' || needs.check-versions.outputs.testing_updated == 'true'
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
@@ -167,19 +253,20 @@ jobs:
 
           gpg --export --armor "$GPG_KEY_ID" > site/dcpomatic-apt.asc
 
-      - name: Gerar metadados APT
-        if: steps.check_update.outputs.updated == 'true'
+      - name: Gerar metadados APT stable
+        if: needs.check-versions.outputs.stable_updated == 'true'
         env:
-          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          VERSION: ${{ needs.check-versions.outputs.stable_version }}
         run: |
           cd site
 
-          echo "$VERSION" > version.txt
+          echo "$VERSION" > stable-version.txt
 
-          dpkg-scanpackages pool /dev/null > dists/stable/main/binary-amd64/Packages
+          # Gerar Packages apenas para ficheiros da stable (excluir os que têm "test" no nome)
+          dpkg-scanpackages pool /dev/null | grep -v "test" > dists/stable/main/binary-amd64/Packages
           gzip -9c dists/stable/main/binary-amd64/Packages > dists/stable/main/binary-amd64/Packages.gz
 
-          cat > apt-ftparchive.conf << EOF
+          cat > apt-ftparchive-stable.conf << EOF
           APT::FTPArchive::Release::Origin "DCP-o-matic APT Repository";
           APT::FTPArchive::Release::Label "DCP-o-matic";
           APT::FTPArchive::Release::Suite "stable";
@@ -189,26 +276,69 @@ jobs:
           EOF
 
           cd dists/stable
-          apt-ftparchive release -c=../../apt-ftparchive.conf . > Release
+          apt-ftparchive release -c=../../apt-ftparchive-stable.conf . > Release
 
           gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
 
           cd ../..
 
-          echo "=== Packages ==="
+          echo "=== Stable Packages ==="
           grep -E "^(Package|Version|Architecture|Filename|Size|SHA256):" dists/stable/main/binary-amd64/Packages
 
-          echo ""
+      - name: Gerar metadados APT testing
+        if: needs.check-versions.outputs.testing_updated == 'true'
+        env:
+          VERSION: ${{ needs.check-versions.outputs.testing_version }}
+        run: |
+          cd site
+
+          echo "$VERSION" > testing-version.txt
+
+          # Gerar Packages apenas para ficheiros da testing (incluir os que têm "test" no nome)
+          dpkg-scanpackages pool /dev/null | grep "test" > dists/testing/main/binary-amd64/Packages
+          gzip -9c dists/testing/main/binary-amd64/Packages > dists/testing/main/binary-amd64/Packages.gz
+
+          cat > apt-ftparchive-testing.conf << EOF
+          APT::FTPArchive::Release::Origin "DCP-o-matic APT Repository";
+          APT::FTPArchive::Release::Label "DCP-o-matic";
+          APT::FTPArchive::Release::Suite "testing";
+          APT::FTPArchive::Release::Codename "trixie";
+          APT::FTPArchive::Release::Architectures "amd64";
+          APT::FTPArchive::Release::Components "main";
+          EOF
+
+          cd dists/testing
+          apt-ftparchive release -c=../../apt-ftparchive-testing.conf . > Release
+
+          gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
+          gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
+
+          cd ../..
+
+          echo "=== Testing Packages ==="
+          grep -E "^(Package|Version|Architecture|Filename|Size|SHA256):" dists/testing/main/binary-amd64/Packages
+
+      - name: Copiar ficheiros antigos se não houve actualização
+        if: needs.check-versions.outputs.stable_updated == 'false' || needs.check-versions.outputs.testing_updated == 'false'
+        run: |
+          cd site
+          
+          # Se a stable não foi actualizada, não precisamos fazer nada (o artifact anterior será usado)
+          # Se a testing não foi actualizada, não precisamos fazer nada
+          
+          echo "Apenas as versões com actualizações foram processadas."
+
+      - name: Mostrar estrutura final
+        run: |
+          cd site
           echo "=== Estrutura final ==="
-          find . -type f -maxdepth 6 -printf '%p %s bytes\n'
+          find . -type f -printf '%p %s bytes\n' | sort
 
       - name: Configurar GitHub Pages
-        if: steps.check_update.outputs.updated == 'true'
         uses: actions/configure-pages@v5
 
       - name: Upload do artifact do GitHub Pages
-        if: steps.check_update.outputs.updated == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
