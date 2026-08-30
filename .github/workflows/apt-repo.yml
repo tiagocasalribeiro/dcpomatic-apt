@@ -92,21 +92,39 @@ jobs:
           const { chromium } = require('playwright');
 
           (async () => {
-            const browser = await chromium.launch();
-            const context = await browser.newContext({ acceptDownloads: true });
+            const browser = await chromium.launch({
+              headless: true,
+              args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-features=IsolateOrigins,site-per-process'
+              ]
+            });
+            
+            const context = await browser.newContext({
+              acceptDownloads: true,
+              userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              viewport: { width: 1920, height: 1080 }
+            });
+            
             const page = await context.newPage();
             
             const version = process.env.VERSION;
             const url = `https://dcpomatic.com/dl?id=debian-13-x86&version=${version}&paid=0`;
             
             console.log(`A abrir ${url}...`);
-            await page.goto(url, { waitUntil: 'networkidle', timeout: 120000 });
             
-            // Aguardar pelo botão "Just let me download it"
+            // Usar 'load' em vez de 'networkidle' para evitar timeout com Cloudflare
+            await page.goto(url, { waitUntil: 'load', timeout: 120000 });
+            
+            console.log('Página carregada, à espera do botão...');
+            
+            // Esperar pelo botão "Just let me download it"
             const downloadLink = page.getByText('Just let me download it');
-            await downloadLink.waitFor({ timeout: 30000 });
+            await downloadLink.waitFor({ state: 'visible', timeout: 60000 });
             
-            console.log('A clicar em "Just let me download it"...');
+            console.log('Botão encontrado, a clicar...');
             
             const [download] = await Promise.all([
               page.waitForEvent('download', { timeout: 120000 }),
@@ -116,8 +134,10 @@ jobs:
             const filename = `dcpomatic_${version}_amd64.deb`;
             await download.saveAs(filename);
             console.log(`Ficheiro guardado como ${filename}`);
+            console.log(`Tamanho: ${(await download.path()).stat?.size || 'desconhecido'} bytes`);
             
             await browser.close();
+            console.log('Download concluído com sucesso');
           })();
           EOF
           
