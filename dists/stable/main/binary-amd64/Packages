@@ -1,0 +1,20 @@
+Package: dcpomatic
+Version: 1+2.18.48-1
+Architecture: amd64
+Maintainer: Carl Hetherington <carl@dcpomatic.com>
+Installed-Size: 629243
+Depends: libc6, libsndfile1, libsamplerate0, libgtk2.0-0, libboost-filesystem1.83.0, libboost-thread1.83.0, libboost-regex1.83.0, libboost-date-time1.83.0, libxml++2.6-2v5, libxmlsec1t64-openssl, libzip5, libcairomm-1.0-1v5, libpangomm-1.4-1v5, libicu76, libssh-4, libnettle8, libx264-164, libcurl4, libxerces-c3.2, libnanomsg5, libfmt10, libsqlite3-0, libhpdf-2.3.0, libxcb-xfixes0, libxcb-shape0, libasound2, libpulse0, libwxgtk3.2-1t64, libwxgtk-gl3.2-1t64
+Replaces: dcpomatic-cli
+Filename: https://github.com/tiagocasalribeiro/dcpomatic-apt/releases/download/v2.18.48/dcpomatic_1%2B2.18.48-1_amd64.deb
+Size: 213432880
+MD5sum: 2272e0e08dc9367fa684d5af5910af4a
+SHA1: f01144924746ca58f107b985f6a2a941812d3a62
+SHA256: 8cfc6d53e8773da694d710e3b5f71612aedbef18eb53b3ef4767c0b55e836ed8
+Section: video
+Priority: extra
+Homepage: https://dcpomatic.com/
+Description: Generator of Digital Cinema Packages (DCPs)
+  DCP-o-matic generates Digital Cinema Packages (DCPs) from videos, images,
+  sound and subtitle files.  You can use it to make content for playback on DCI-compliant
+  cinema projectors.
+

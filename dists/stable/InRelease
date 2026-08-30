@@ -1,0 +1,42 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64
+Codename: trixie
+Components: main
+Date: Sun, 30 Aug 2026 14:49:24 +0000
+Label: DCP-o-matic
+Origin: DCP-o-matic APT Repository
+Suite: stable
+MD5Sum:
+ 480fb86137c9ebee19e411350952e9b9              161 Release
+ 8636642f7a8121be8d6cb71a67b30c09             1226 main/binary-amd64/Packages
+ ef9e4042efb25fb3e2d36dbb29b34e46              744 main/binary-amd64/Packages.gz
+SHA1:
+ 6481ea1f2f5d76c3f78a73410d45cb300e349dd5              161 Release
+ dd16c6693cebedb12dfce602dc22de87ce1109f3             1226 main/binary-amd64/Packages
+ 25b8dcd3397f6c1275d0f71ee2f5dede418290dd              744 main/binary-amd64/Packages.gz
+SHA256:
+ 966a5d715a51a5df364b4e755aea4046fad951e0808cc62e6001ba9f70d76a1a              161 Release
+ abd0184d526bf1be455d998d99ae9848363214946c043c9504bf022fafd6bae6             1226 main/binary-amd64/Packages
+ 27aed98cbc8e7c24f795aced91a58b03c2697670089a6918cfb80d525d6d2262              744 main/binary-amd64/Packages.gz
+SHA512:
+ 6fb0002907343d5b61b7b10af4182151e86b8dc1a766bd1b8ca37b9acc0072f6d2a8184e550ca27fb280f75e975845e72f63bacccda41ebc1056e71ac975ebcd              161 Release
+ 8469b44fbd6f2b5206cb21662cdf992f1097717497ce96f3d287c64e248d8e9063c242b4052c7419207f5d4b1dcdf8dd449327db14a918f14b6491f4bf032122             1226 main/binary-amd64/Packages
+ 7a721b1336f46ef49ad97d5c8b9d7f42d67149217ad2c8808d151f83ca54b6059d651ae265ebff51752f27079946007613f08742fc4cae3f4ddfc82c912953f4              744 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEtXPJ2JgOH7BqHCSxHQX4Fa0uzdoFAmqUQvQACgkQHQX4Fa0u
+zdpDEQ//QOSXMLcnYDF0ewFlwHa+r/yXtISGQ1rKDX9N2Yn1LTxbRsJd58yIuBwg
+tdmm+2rFFd4R1N8PY7wXFf+Zdbe20EBRbojDqov3tDosj47C6EhrFFJV9AZSS4h0
+kiKxV6UTPlY67/cMH54PbEFK9/vNBJmgf5rYq04i+Nch7SEsItmZCZgU7a64T29M
+uagLVe9abO9VDankZZvRc6heyc1OmrjWj/YHsqFl034ehe5+3GxeF+fk6p7HHEYp
+b2kaBqSLNPyM5u9NwFBUlQG//8tTTPmk5Jmv7FUe+Z3VHX8gdG56ZfHzfnS/oZBg
+q4qEVGQ17cp2byqrin5Gm8SiEHYz1swvI3lw+T+gPLupom/ossz9Rn/R0E4EHWK3
+w22ibukLGwbwXKJCHsor4jKtH41AZVd3kGEBVaRforniLD5WnAeAs4XDD04Mc4Wl
++wMTpHILNAw3/sOg3uQvFoqwA+Xsotq1pJxLTpI8uqMemArl8bkNqSXnLH9G/ogB
+l5iQgj9V12eYD9kEHAwjPOH/EeDL8y6HDGFzqQ/xtkHVOkfSCkE3cONfFMeCzK5v
+SqfU7DtSL2JO3uw5upJnr9b6t1t40jRn+16ZZXYSnmdY+yXdGLd7u1O3xHi0OMiY
+k6PBTJa7ws0YKoeSkmWJSK5Vfw5Z/tQhmeo77xbau+1DDNLsjho=
+=/mqP
+-----END PGP SIGNATURE-----
