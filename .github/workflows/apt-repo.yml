@@ -32,26 +32,20 @@ jobs:
         id: get_versions
         run: |
           python3 << 'PYEOF' >> "$GITHUB_OUTPUT"
-          import json, urllib.request
+          import re
+          from curl_cffi import requests
 
-          url = "https://api.github.com/repos/cth103/dcpomatic/tags?per_page=50"
-          req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-          data = json.loads(urllib.request.urlopen(req).read())
+          s = requests.Session()
 
-          stable_version = testing_version = ""
-          for tag in data:
-              name = tag["name"]
-              if not name.startswith("v"): continue
-              version = name[1:]
-              parts = version.split(".")
-              if len(parts) != 3: continue
-              major, minor, patch = parts
-              if not (major.isdigit() and minor.isdigit() and patch.isdigit()): continue
-              if int(minor) % 2 == 0:
-                  if not stable_version: stable_version = version
-              else:
-                  if not testing_version: testing_version = version
-              if stable_version and testing_version: break
+          # Stable: ler a página principal de downloads
+          r_stable = s.get("https://dcpomatic.com/download", impersonate="chrome")
+          m_stable = re.search(r'Stable release:\s*([0-9]+\.[0-9]+\.[0-9]+)', r_stable.text)
+          stable_version = m_stable.group(1) if m_stable else ""
+
+          # Testing: ler a página de test downloads
+          r_testing = s.get("https://dcpomatic.com/test-download", impersonate="chrome")
+          m_testing = re.search(r'Test release:\s*([0-9]+\.[0-9]+\.[0-9]+)', r_testing.text)
+          testing_version = m_testing.group(1) if m_testing else ""
 
           print(f"STABLE_VERSION={stable_version}")
           print(f"TESTING_VERSION={testing_version}")
