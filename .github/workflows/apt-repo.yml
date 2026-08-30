@@ -29,7 +29,7 @@ jobs:
       - name: Instalar ferramentas
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg
+          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg curl
           pip3 install curl_cffi --break-system-packages
 
       - name: Obter a versão estável actual
@@ -97,21 +97,6 @@ jobs:
 
           echo "${{ steps.get_version.outputs.VERSION }}" > version.txt
 
-      - name: Criar Release e fazer upload do .deb
-        if: steps.check_update.outputs.updated == 'true'
-        working-directory: ./apt-repo
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.get_version.outputs.VERSION }}
-          FILENAME: ${{ steps.download.outputs.FILENAME }}
-        run: |
-          TAG="v${VERSION}"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" \
-            --title "DCP-o-matic $VERSION" \
-            --notes "Pacote Debian 13 (amd64) do DCP-o-matic $VERSION" \
-            "$FILENAME"
-
       - name: Importar chave GPG
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
@@ -123,28 +108,99 @@ jobs:
           echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
           gpg --export --armor "$GPG_KEY_ID" > dcpomatic-apt.asc
 
-      - name: Gerar metadados APT e assinar com GPG
+      - name: Fazer upload do .deb para gh-pages via GitHub API
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          FILENAME: ${{ steps.download.outputs.FILENAME }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          
+          # Obter a SHA do último commit do gh-pages
+          LAST_COMMIT_SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/git/ref/heads/gh-pages" \
+            | jq -r '.object.sha')
+          
+          # Obter a SHA da tree do último commit
+          LAST_TREE_SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/git/commits/$LAST_COMMIT_SHA" \
+            | jq -r '.tree.sha')
+          
+          # Fazer upload do .deb como blob (suporta ficheiros grandes via API)
+          echo "A fazer upload de $FILENAME via GitHub API..."
+          FILE_SHA=$(curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/$REPO/git/blobs" \
+            -d "$(python3 -c "
+          import json, base64
+          with open('$FILENAME', 'rb') as f:
+              data = base64.b64encode(f.read()).decode()
+          print(json.dumps({'content': data, 'encoding': 'base64'}))
+          ")" | jq -r '.sha')
+          
+          echo "Blob SHA: $FILE_SHA"
+          
+          # Criar nova tree com o ficheiro .deb na raiz
+          NEW_TREE_SHA=$(curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/$REPO/git/trees" \
+            -d "$(cat <<EOF
+          {
+            "base_tree": "$LAST_TREE_SHA",
+            "tree": [
+              {
+                "path": "$FILENAME",
+                "mode": "100644",
+                "type": "blob",
+                "sha": "$FILE_SHA"
+              }
+            ]
+          }
+          EOF
+          )" | jq -r '.sha')
+          
+          echo "Nova tree SHA: $NEW_TREE_SHA"
+          
+          # Criar novo commit
+          NEW_COMMIT_SHA=$(curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/$REPO/git/commits" \
+            -d "$(cat <<EOF
+          {
+            "message": "Adicionar $FILENAME",
+            "tree": "$NEW_TREE_SHA",
+            "parents": ["$LAST_COMMIT_SHA"]
+          }
+          EOF
+          )" | jq -r '.sha')
+          
+          echo "Novo commit SHA: $NEW_COMMIT_SHA"
+          
+          # Actualizar a referência gh-pages para o novo commit
+          curl -s -X PATCH -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/$REPO/git/refs/heads/gh-pages" \
+            -d "{\"sha\": \"$NEW_COMMIT_SHA\"}"
+          
+          echo "Upload concluído com sucesso!"
+          
+          # Limpar o ficheiro local (não vamos fazer commit via git)
+          rm -f "$FILENAME"
+
+      - name: Gerar metadados APT e assinar com GPG
+        if: steps.check_update.outputs.updated == 'true'
+        working-directory: ./apt-repo
+        env:
           FILENAME: ${{ steps.download.outputs.FILENAME }}
         run: |
-          TAG="v${VERSION}"
-          ASSET_URL=$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$FILENAME\") | .url")
-          
-          if [ -z "$ASSET_URL" ]; then
-            echo "ERRO: não foi possível obter URL do asset"
-            exit 1
-          fi
-
           # Criar estrutura dists/stable/main/binary-amd64
           mkdir -p dists/stable/main/binary-amd64
 
-          # Gerar Packages com o Filename: apontando para o asset da release
+          # Gerar Packages com o Filename: como caminho relativo
           dpkg-scanpackages . /dev/null 2>/dev/null \
-            | sed "s|^Filename: \./.*|Filename: ${ASSET_URL}|" \
+            | sed "s|^Filename: \./.*|Filename: $FILENAME|" \
             > dists/stable/main/binary-amd64/Packages
 
           gzip -9c dists/stable/main/binary-amd64/Packages \
@@ -168,9 +224,6 @@ jobs:
           gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
           cd ../..
-
-          # Limpar o .deb do directório de trabalho (já está na release)
-          rm -f "$FILENAME"
 
       - name: Limpar releases antigas
         if: steps.check_update.outputs.updated == 'true'
