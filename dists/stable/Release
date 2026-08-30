@@ -1,23 +1,23 @@
 Architectures: amd64
 Codename: trixie
 Components: main
-Date: Sun, 30 Aug 2026 15:03:02 +0000
+Date: Sun, 30 Aug 2026 15:09:15 +0000
 Label: DCP-o-matic
 Origin: DCP-o-matic APT Repository
 Suite: stable
 MD5Sum:
- ccebc941d477f61853846b819b50ce0f              161 Release
+ 58eae522e246263330118303dd52bf11              161 Release
  d41d8cd98f00b204e9800998ecf8427e                0 main/binary-amd64/Packages
- f4960185ecef3e2f4945967f4b8af8c2               29 main/binary-amd64/Packages.gz
+ 319c69d561ea8f9d2feaf637a4ae14fb               29 main/binary-amd64/Packages.gz
 SHA1:
- 85905dea8cab99f64143347392969f8177214367              161 Release
+ 04131856db5a28c678a4a46cddfe7ceb860d876e              161 Release
  da39a3ee5e6b4b0d3255bfef95601890afd80709                0 main/binary-amd64/Packages
- 7988648d6bf0213337eb6943de0f5b323e27cd6f               29 main/binary-amd64/Packages.gz
+ 8efacd87cde42e458aac2bb4757983d71e7de32f               29 main/binary-amd64/Packages.gz
 SHA256:
- 6064258da820c0eefade9560e5cbff7cc42029d63eb6a1ab7998d262166ed037              161 Release
+ de2f39ce06075aede96a04cc58dd377b96fcf5afcdf15aed6f8916d79187b4d2              161 Release
  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855                0 main/binary-amd64/Packages
- 31f1cde166a10d9f785c24894c92e8551ffd83d26a81f7d3fd577efb64fb5344               29 main/binary-amd64/Packages.gz
+ c26a2740f92d48071d4634334611e431fa1aa176edb9d349d7f1cd2b3fa6a421               29 main/binary-amd64/Packages.gz
 SHA512:
- 8082998753d192ba6a6dccff7a5454bbbaf35251984d98c2fbfdb7dd75ff20cfe5e2fae32f6f7496590ae0296e10ed5753e0e3ec37c36a9d41614959a001241e              161 Release
+ aefd97a5c3069941ad0606eeb7171f121ea36685cf200d038f4c4d0c79f2a19d0a4dece77c0f3e5c6d241df17f6db35de105149109af5cb66aa53413051be0b1              161 Release
  cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e                0 main/binary-amd64/Packages
- 910e7e4aaa57d50fd9903a0c5d061e787e22830d1229e8211d2a6382f860d4c3a32fca15945f58de6f57c803ff13c336c68a079bb84415ea827906d0be6aa42e               29 main/binary-amd64/Packages.gz
+ b4b532fc0bfaa0ab5d0170e6efa54b5551de227b4adf93bbf0d7fcaf109494da76bc126d8e8f22b1a2b20f9cea15b1db51b3a6825da42a87ce34adb2e4b26947               29 main/binary-amd64/Packages.gz
