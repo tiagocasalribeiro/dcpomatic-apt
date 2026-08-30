@@ -1,19 +1,19 @@
-# Repositório APT do DCP-o-matic para Debian 13
+# DCP-o-matic APT Repository for Debian 13
 
-Repositório APT não oficial do [DCP-o-matic](https://dcpomatic.com) para o Debian 13 (Trixie), mantido de forma automática pelo GitHub Actions.
+Unofficial APT repository for [DCP-o-matic](https://dcpomatic.com) on Debian 13 (Trixie), automatically maintained via GitHub Actions.
 
-O fluxo verifica diariamente as páginas de downloads do DCP-o-matic e publica automaticamente as novas versões. Estão disponíveis dois canais:
+The workflow checks the DCP-o-matic download pages daily and publishes new versions automatically. Two channels are available:
 
-| Canal | Origem | Descrição |
+| Channel | Source | Description |
 | --- | --- | --- |
-| `stable` | `Stable release:` em [dcpomatic.com/download](https://dcpomatic.com/download) | Versão estável recomendada |
-| `testing` | `Test release:` em [dcpomatic.com/test-download](https://dcpomatic.com/test-download) | Versão de desenvolvimento |
+| `stable` | `Stable release:` on [dcpomatic.com/download](https://dcpomatic.com/download) | Recommended stable version |
+| `testing` | `Test release:` on [dcpomatic.com/test-download](https://dcpomatic.com/test-download) | Development version |
 
-> **Nota:** Este projecto não está associado ao autor do DCP-o-matic.
+> **Note:** This project is not affiliated with the DCP-o-matic author.
 
-## Instalação
+## Installation
 
-### 1. Instalar a chave pública
+### 1. Install the public key
 
 ```bash
 sudo mkdir -p /etc/apt/keyrings
@@ -21,9 +21,9 @@ curl -fsSL https://tiagocasalribeiro.github.io/dcpomatic-apt/dcpomatic-apt.asc \
   | sudo gpg --dearmor -o /etc/apt/keyrings/dcpomatic-apt.gpg
 ```
 
-### 2. Adicionar o canal pretendido
+### 2. Add the desired channel
 
-**Stable** (recomendado):
+**Stable** (recommended):
 
 ```bash
 sudo tee /etc/apt/sources.list.d/dcpomatic-stable.sources << 'EOF'
@@ -35,7 +35,7 @@ Signed-By: /etc/apt/keyrings/dcpomatic-apt.gpg
 EOF
 ```
 
-**Testing** (desenvolvimento):
+**Testing** (development):
 
 ```bash
 sudo tee /etc/apt/sources.list.d/dcpomatic-testing.sources << 'EOF'
@@ -47,18 +47,18 @@ Signed-By: /etc/apt/keyrings/dcpomatic-apt.gpg
 EOF
 ```
 
-### 3. Actualizar e instalar
+### 3. Update and install
 
 ```bash
 sudo apt update
 sudo apt install dcpomatic
 ```
 
-## Usar os dois canais em simultâneo
+## Using both channels simultaneously
 
-Como ambos os canais contêm um pacote com o mesmo nome (`dcpomatic`), se activares os dois, o `apt` escolherá por omissão a versão mais recente (testing).
+Since both channels contain a package with the same name (`dcpomatic`), if you enable both, `apt` will pick the most recent version by default (testing).
 
-Para dar prioridade a um canal, cria um ficheiro de pinning:
+To prioritise a specific channel, create a pinning file:
 
 ```bash
 sudo tee /etc/apt/preferences.d/dcpomatic << 'EOF'
@@ -72,29 +72,29 @@ Pin-Priority: 500
 EOF
 ```
 
-## Actualização
+## Updating
 
 ```bash
 sudo apt update && sudo apt upgrade
 ```
 
-Para instalar uma versão específica:
+To install a specific version:
 
 ```bash
-sudo apt install dcpomatic/stable     # versão estável
-sudo apt install dcpomatic/testing    # versão de teste
+sudo apt install dcpomatic/stable     # stable version
+sudo apt install dcpomatic/testing    # testing version
 ```
 
-## Resolução de problemas
+## Troubleshooting
 
-| Sintoma | Solução |
+| Symptom | Solution |
 | --- | --- |
-| `404 Not Found` no `apt update` | O GitHub Pages pode ainda não estar pronto; aguarda alguns minutos |
-| `NO_PUBKEY` | Volta a executar o passo 1 da instalação |
-| O pacote não aparece | Executa `sudo apt update` primeiro |
-| `404` ao instalar | Limpa a cache: `sudo rm -rf /var/lib/apt/lists/* && sudo apt update` |
+| `404 Not Found` during `apt update` | GitHub Pages may not be ready yet; wait a few minutes |
+| `NO_PUBKEY` | Re-run step 1 of the installation |
+| Package not found | Run `sudo apt update` first |
+| `404` when installing | Clear the cache: `sudo rm -rf /var/lib/apt/lists/* && sudo apt update` |
 
-## Estrutura do repositório
+## Repository structure
 
 ```
 dcpomatic-apt/
@@ -103,9 +103,9 @@ dcpomatic-apt/
 ├── testing-version.txt
 ├── pool/
 │   ├── stable/main/d/dcpomatic/
-│   │   └── dcpomatic_<versão>_amd64.deb
+│   │   └── dcpomatic_<version>_amd64.deb
 │   └── testing/main/d/dcpomatic/
-│       └── dcpomatic_<versão>_amd64.deb
+│       └── dcpomatic_<version>_amd64.deb
 └── dists/
     ├── stable/
     │   ├── InRelease, Release, Release.gpg
@@ -115,7 +115,7 @@ dcpomatic-apt/
         └── main/binary-amd64/Packages(.gz)
 ```
 
-## Créditos
+## Credits
 
-DCP-o-matic © Carl Hetherington, sob licença GNU GPL.
+DCP-o-matic © Carl Hetherington, licensed under GNU GPL.
 <https://dcpomatic.com>
