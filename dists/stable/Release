@@ -1,23 +1,23 @@
 Architectures: amd64
 Codename: trixie
 Components: main
-Date: Sun, 30 Aug 2026 15:09:15 +0000
+Date: Sun, 30 Aug 2026 15:15:32 +0000
 Label: DCP-o-matic
 Origin: DCP-o-matic APT Repository
 Suite: stable
 MD5Sum:
- 58eae522e246263330118303dd52bf11              161 Release
- d41d8cd98f00b204e9800998ecf8427e                0 main/binary-amd64/Packages
- 319c69d561ea8f9d2feaf637a4ae14fb               29 main/binary-amd64/Packages.gz
+ 247fc1032189ded1d36fdb53e6b5c310              161 Release
+ 8636642f7a8121be8d6cb71a67b30c09             1226 main/binary-amd64/Packages
+ 0e032c950c035a18d650a5a711e5d39a              744 main/binary-amd64/Packages.gz
 SHA1:
- 04131856db5a28c678a4a46cddfe7ceb860d876e              161 Release
- da39a3ee5e6b4b0d3255bfef95601890afd80709                0 main/binary-amd64/Packages
- 8efacd87cde42e458aac2bb4757983d71e7de32f               29 main/binary-amd64/Packages.gz
+ 2fbe0edbeec739d9f16d165c1d089c0dd472f2e9              161 Release
+ dd16c6693cebedb12dfce602dc22de87ce1109f3             1226 main/binary-amd64/Packages
+ 6719f62e2f345761679c5138439e21e48a26ea28              744 main/binary-amd64/Packages.gz
 SHA256:
- de2f39ce06075aede96a04cc58dd377b96fcf5afcdf15aed6f8916d79187b4d2              161 Release
- e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855                0 main/binary-amd64/Packages
- c26a2740f92d48071d4634334611e431fa1aa176edb9d349d7f1cd2b3fa6a421               29 main/binary-amd64/Packages.gz
+ d43f76adbfb7bcda4445ed6032b5ed6ea2b299e4ee1d5b051e98787b05eb1f26              161 Release
+ abd0184d526bf1be455d998d99ae9848363214946c043c9504bf022fafd6bae6             1226 main/binary-amd64/Packages
+ 02990f3b7bbca50dfaccff643d5284916801d22b90ebf1d3b18839925eb15c8b              744 main/binary-amd64/Packages.gz
 SHA512:
- aefd97a5c3069941ad0606eeb7171f121ea36685cf200d038f4c4d0c79f2a19d0a4dece77c0f3e5c6d241df17f6db35de105149109af5cb66aa53413051be0b1              161 Release
- cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e                0 main/binary-amd64/Packages
- b4b532fc0bfaa0ab5d0170e6efa54b5551de227b4adf93bbf0d7fcaf109494da76bc126d8e8f22b1a2b20f9cea15b1db51b3a6825da42a87ce34adb2e4b26947               29 main/binary-amd64/Packages.gz
+ b1146a825a850e72f436b6c97420197a71fe74e525799ed3c2a0b8b4a0992df2e31273d385f8764c794bcac4ca658d096b8716425df67680e87a019b539cd303              161 Release
+ 8469b44fbd6f2b5206cb21662cdf992f1097717497ce96f3d287c64e248d8e9063c242b4052c7419207f5d4b1dcdf8dd449327db14a918f14b6491f4bf032122             1226 main/binary-amd64/Packages
+ a67a9ac689d10d2dbedf19b5947b295d8bb7839a2df15212ab53dc35ea56aa3531266a40ecb21f721c2285b9171cf628cc9f969fdb4732c4ac1810933be7f58b              744 main/binary-amd64/Packages.gz
