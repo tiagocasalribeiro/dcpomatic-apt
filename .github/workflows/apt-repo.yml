@@ -2,7 +2,7 @@ name: Actualizar Repositório APT DCP-o-matic
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Corre diariamente à meia-noite
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -26,12 +26,15 @@ jobs:
           git fetch origin gh-pages || true
           git checkout -b gh-pages origin/gh-pages || git checkout -b gh-pages
 
-      - name: Instalar ferramentas APT e Node.js
+      - name: Instalar ferramentas APT
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils dpkg-dev nodejs npm
+          sudo apt-get install -y apt-utils dpkg-dev python3-pip
 
-      - name: Obter a versão actual via GitHub API
+      - name: Instalar curl_cffi
+        run: pip3 install curl_cffi --break-system-packages
+
+      - name: Obter a versão estável actual
         id: get_version
         run: |
           python3 -c "
@@ -44,8 +47,7 @@ jobs:
               if name.startswith('v') and '.' in name[1:]:
                   parts = name[1:].split('.')
                   if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
-                      minor = int(parts[1])
-                      if minor % 2 == 0:
+                      if int(parts[1]) % 2 == 0:
                           print(f'VERSION={name[1:]}')
                           break
           " >> $GITHUB_OUTPUT
@@ -55,95 +57,52 @@ jobs:
         working-directory: ./apt-repo
         run: |
           CURRENT_VERSION=""
-          if [ -f version.txt ]; then
-            CURRENT_VERSION=$(cat version.txt)
-          fi
-          
+          [ -f version.txt ] && CURRENT_VERSION=$(cat version.txt)
           NEW_VERSION="${{ steps.get_version.outputs.VERSION }}"
-          
-          echo "Versão actual (da API): '$NEW_VERSION'"
-          echo "Versão no repositório: '$CURRENT_VERSION'"
-          
-          if [ -z "$CURRENT_VERSION" ]; then
-            echo "Primeira execução - forçar actualização"
+          echo "Versão da API: '$NEW_VERSION' | Versão no repo: '$CURRENT_VERSION'"
+          if [ -z "$CURRENT_VERSION" ] || [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
             echo "updated=true" >> $GITHUB_OUTPUT
-          elif [ "$CURRENT_VERSION" == "$NEW_VERSION" ]; then
-            echo "Sem alterações na versão."
-            echo "updated=false" >> $GITHUB_OUTPUT
           else
-            echo "Nova versão detectada!"
-            echo "updated=true" >> $GITHUB_OUTPUT
+            echo "updated=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Instalar Playwright
-        if: steps.check_update.outputs.updated == 'true'
-        run: |
-          npm init -y
-          npm install playwright
-          npx playwright install chromium --with-deps
-
-      - name: Descarregar pacote .deb com Playwright
+      - name: Descarregar pacote .deb
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
-          cat > download.js << 'EOF'
-          const { chromium } = require('playwright');
+          rm -f *.deb
+          python3 << 'PYEOF'
+          import os, re
+          from curl_cffi import requests
 
-          (async () => {
-            const browser = await chromium.launch({
-              headless: true,
-              args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=IsolateOrigins,site-per-process'
-              ]
-            });
-            
-            const context = await browser.newContext({
-              acceptDownloads: true,
-              userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              viewport: { width: 1920, height: 1080 }
-            });
-            
-            const page = await context.newPage();
-            
-            const version = process.env.VERSION;
-            const url = `https://dcpomatic.com/dl?id=debian-13-x86&version=${version}&paid=0`;
-            
-            console.log(`A abrir ${url}...`);
-            
-            // Usar 'load' em vez de 'networkidle' para evitar timeout com Cloudflare
-            await page.goto(url, { waitUntil: 'load', timeout: 120000 });
-            
-            console.log('Página carregada, à espera do botão...');
-            
-            // Esperar pelo botão "Just let me download it"
-            const downloadLink = page.getByText('Just let me download it');
-            await downloadLink.waitFor({ state: 'visible', timeout: 60000 });
-            
-            console.log('Botão encontrado, a clicar...');
-            
-            const [download] = await Promise.all([
-              page.waitForEvent('download', { timeout: 120000 }),
-              downloadLink.click()
-            ]);
-            
-            const filename = `dcpomatic_${version}_amd64.deb`;
-            await download.saveAs(filename);
-            console.log(`Ficheiro guardado como ${filename}`);
-            console.log(`Tamanho: ${(await download.path()).stat?.size || 'desconhecido'} bytes`);
-            
-            await browser.close();
-            console.log('Download concluído com sucesso');
-          })();
-          EOF
-          
-          node download.js
-          rm download.js
-          
+          version = os.environ["VERSION"]
+          base = f"https://dcpomatic.com/dl?id=debian-13-x86&version={version}"
+          s = requests.Session()
+
+          # Passo 1: página de doação (obtém cookie PHPSESSID)
+          print("Passo 1: a obter cookie de sessão...")
+          s.get(base + "&paid=0", impersonate="chrome")
+
+          # Passo 2: "Your download should start soon"
+          print("Passo 2: a passar pela página de doação...")
+          r2 = s.get(base + "&paid=0", impersonate="chrome")
+
+          # Passo 3: download real (URL sem paid)
+          print("Passo 3: a descarregar o .deb...")
+          r3 = s.get(base, impersonate="chrome")
+
+          # Extrair nome do ficheiro do Content-Disposition
+          cd = r3.headers.get("content-disposition", "")
+          m = re.search(r'filename="([^"]+)"', cd)
+          filename = m.group(1) if m else f"dcpomatic_{version}_amd64.deb"
+
+          with open(filename, "wb") as f:
+              f.write(r3.content)
+          print(f"Guardado: {filename} ({len(r3.content)} bytes)")
+          PYEOF
+
           echo "${{ steps.get_version.outputs.VERSION }}" > version.txt
           ls -lh *.deb
 
@@ -154,12 +113,11 @@ jobs:
           dpkg-scanpackages . /dev/null > Packages
           gzip -9c Packages > Packages.gz
           apt-ftparchive release . > Release
-          ls -lh
 
       - name: Commit e Push para gh-pages
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         run: |
           git add -f *.deb Packages Packages.gz Release version.txt
-          git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.VERSION }}" || echo "Sem alterações para commit"
+          git commit -m "Actualizar DCP-o-matic para ${{ steps.get_version.outputs.VERSION }}"
           git push origin gh-pages
