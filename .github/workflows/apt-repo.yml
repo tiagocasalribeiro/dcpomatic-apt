@@ -23,19 +23,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          # Tentar ir buscar o ramo gh-pages se já existir
           git fetch origin gh-pages || true
           git checkout -b gh-pages origin/gh-pages || git checkout -b gh-pages
 
-      - name: Instalar ferramentas APT
+      - name: Instalar ferramentas APT e Node.js
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils dpkg-dev
+          sudo apt-get install -y apt-utils dpkg-dev nodejs npm
 
       - name: Obter a versão actual via GitHub API
         id: get_version
         run: |
-          # Consulta a API do GitHub e filtra a tag estável mais recente (número menor par)
           python3 -c "
           import json, urllib.request
           url = 'https://api.github.com/repos/cth103/dcpomatic/tags?per_page=50'
@@ -77,39 +75,65 @@ jobs:
             echo "updated=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Descarregar pacote .deb
+      - name: Instalar Playwright
+        if: steps.check_update.outputs.updated == 'true'
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+      - name: Descarregar pacote .deb com Playwright
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          rm -f *.deb
+          cat > download.js << 'EOF'
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch();
+            const context = await browser.newContext({ acceptDownloads: true });
+            const page = await context.newPage();
+            
+            const version = process.env.VERSION;
+            const url = `https://dcpomatic.com/dl?id=debian-13-x86&version=${version}&paid=0`;
+            
+            console.log(`A abrir ${url}...`);
+            await page.goto(url, { waitUntil: 'networkidle', timeout: 120000 });
+            
+            // Aguardar pelo botão "Just let me download it"
+            const downloadLink = page.getByText('Just let me download it');
+            await downloadLink.waitFor({ timeout: 30000 });
+            
+            console.log('A clicar em "Just let me download it"...');
+            
+            const [download] = await Promise.all([
+              page.waitForEvent('download', { timeout: 120000 }),
+              downloadLink.click()
+            ]);
+            
+            const filename = `dcpomatic_${version}_amd64.deb`;
+            await download.saveAs(filename);
+            console.log(`Ficheiro guardado como ${filename}`);
+            
+            await browser.close();
+          })();
+          EOF
           
-          echo "A descarregar DCP-o-matic versão $VERSION..."
+          node download.js
+          rm download.js
           
-          # Descarrega o ficheiro contornando o ecrã de doação (wget e curl como fallback)
-          wget -U "Wget/1.21" -O "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0" || {
-            echo "Falha no wget. A tentar com curl..."
-            curl -L -A "Wget/1.21" -o "dcpomatic_${VERSION}_amd64.deb" "https://dcpomatic.com/dl?id=debian-13-x86&version=${VERSION}&paid=0"
-          }
-          
-          if [ -f "dcpomatic_${VERSION}_amd64.deb" ]; then
-            echo "Ficheiro descarregado com sucesso. Tamanho: $(ls -lh dcpomatic_${VERSION}_amd64.deb | awk '{print $5}')"
-          else
-            echo "ERRO: Falha ao descarregar o ficheiro!"
-            exit 1
-          fi
-          
-          echo "$VERSION" > version.txt
+          echo "${{ steps.get_version.outputs.VERSION }}" > version.txt
+          ls -lh *.deb
 
       - name: Gerar metadados APT
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
         run: |
-          echo "A gerar metadados APT..."
           dpkg-scanpackages . /dev/null > Packages
           gzip -9c Packages > Packages.gz
           apt-ftparchive release . > Release
-          echo "Metadados gerados com sucesso"
           ls -lh
 
       - name: Commit e Push para gh-pages
@@ -119,4 +143,3 @@ jobs:
           git add -f *.deb Packages Packages.gz Release version.txt
           git commit -m "Actualizar DCP-o-matic para a versão ${{ steps.get_version.outputs.VERSION }}" || echo "Sem alterações para commit"
           git push origin gh-pages
-          echo "Commit e push concluídos"
