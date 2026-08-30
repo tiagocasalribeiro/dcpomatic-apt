@@ -29,8 +29,16 @@ jobs:
       - name: Instalar ferramentas
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg curl jq
+          sudo apt-get install -y apt-utils dpkg-dev python3-pip gnupg curl jq git-lfs
           pip3 install curl_cffi --break-system-packages
+
+      - name: Inicializar Git LFS no gh-pages
+        working-directory: ./apt-repo
+        run: |
+          git lfs install
+          git lfs track "*.deb"
+          git add .gitattributes
+          git commit -m "Inicializar Git LFS para ficheiros .deb" || echo "Já inicializado"
 
       - name: Obter a versão estável actual
         id: get_version
@@ -97,26 +105,6 @@ jobs:
 
           echo "${{ steps.get_version.outputs.VERSION }}" > version.txt
 
-      - name: Criar Release e fazer upload do .deb
-        if: steps.check_update.outputs.updated == 'true'
-        working-directory: ./apt-repo
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.get_version.outputs.VERSION }}
-          FILENAME: ${{ steps.download.outputs.FILENAME }}
-        run: |
-          TAG="v${VERSION}"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" \
-            --title "DCP-o-matic $VERSION" \
-            --notes "Pacote Debian 13 (amd64) do DCP-o-matic $VERSION" \
-            "$FILENAME"
-          
-          # Obter e guardar o URL do asset para uso posterior
-          ASSET_URL=$(gh release view "$TAG" --json assets --jq ".assets[] | select(.name == \"$FILENAME\") | .url")
-          echo "ASSET_URL=$ASSET_URL" >> $GITHUB_ENV
-          echo "URL do asset: $ASSET_URL"
-
       - name: Importar chave GPG
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
@@ -137,25 +125,10 @@ jobs:
           # Criar estrutura dists/stable/main/binary-amd64
           mkdir -p dists/stable/main/binary-amd64
 
-          # Gerar Packages com o Filename: como URL absoluto para o asset da release
-          dpkg-scanpackages . /dev/null 2>/dev/null > Packages.tmp
-          
-          # Substituir a linha Filename: pelo URL absoluto
-          # Usar Python para garantir que o URL é substituído correctamente
-          python3 << PYEOF
-          import re
-          asset_url = "$ASSET_URL"
-          with open('Packages.tmp', 'r') as f:
-              content = f.read()
-          
-          # Substituir qualquer linha Filename: pelo URL absoluto
-          content = re.sub(r'^Filename: .*$', f'Filename: {asset_url}', content, flags=re.MULTILINE)
-          
-          with open('dists/stable/main/binary-amd64/Packages', 'w') as f:
-              f.write(content)
-          PYEOF
-          
-          rm Packages.tmp
+          # Gerar Packages com o Filename: como caminho relativo
+          dpkg-scanpackages . /dev/null 2>/dev/null \
+            | sed "s|^Filename: \./.*|Filename: $FILENAME|" \
+            > dists/stable/main/binary-amd64/Packages
 
           gzip -9c dists/stable/main/binary-amd64/Packages \
             > dists/stable/main/binary-amd64/Packages.gz
@@ -179,12 +152,8 @@ jobs:
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
           cd ../..
 
-          # Verificar o conteúdo do Packages (debugging)
           echo "=== Conteúdo do Packages ==="
           cat dists/stable/main/binary-amd64/Packages | grep -E "^(Package|Version|Filename):"
-          
-          # Limpar o ficheiro local
-          rm -f "$FILENAME"
 
       - name: Limpar releases antigas
         if: steps.check_update.outputs.updated == 'true'
@@ -202,10 +171,32 @@ jobs:
               gh release delete "$TAG" --yes --cleanup-tag || true
           done
 
-      - name: Commit e Push dos metadados para gh-pages
+      - name: Commit e Push dos metadados e .deb para gh-pages (com LFS)
         if: steps.check_update.outputs.updated == 'true'
         working-directory: ./apt-repo
+        env:
+          GIT_LFS_SKIP_SMUDGE: 0
         run: |
-          git add -f dists/ dcpomatic-apt.asc version.txt
-          git commit -m "Actualizar metadados para DCP-o-matic ${{ steps.get_version.outputs.VERSION }}"
+          # Adicionar todos os ficheiros (incluindo .deb via LFS)
+          git add -f .gitattributes *.deb dists/ dcpomatic-apt.asc version.txt
+          
+          # Commit com o .deb (Git LFS faz o upload automático)
+          git commit -m "Actualizar metadados e pacote para DCP-o-matic ${{ steps.get_version.outputs.VERSION }}"
+          
+          # Push com LFS
           git push origin gh-pages
+
+      - name: Criar Release (backup)
+        if: steps.check_update.outputs.updated == 'true'
+        working-directory: ./apt-repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          FILENAME: ${{ steps.download.outputs.FILENAME }}
+        run: |
+          TAG="v${VERSION}"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "DCP-o-matic $VERSION" \
+            --notes "Pacote Debian 13 (amd64) do DCP-o-matic $VERSION" \
+            "$FILENAME" || echo "Falha ao criar release (backup)"
