@@ -32,48 +32,30 @@ jobs:
         id: get_versions
         run: |
           python3 << 'PYEOF' >> "$GITHUB_OUTPUT"
-          import json
-          import urllib.request
+          import json, urllib.request
 
           url = "https://api.github.com/repos/cth103/dcpomatic/tags?per_page=50"
           req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
           data = json.loads(urllib.request.urlopen(req).read())
 
-          stable_version = ""
-          testing_version = ""
-
+          stable_version = testing_version = ""
           for tag in data:
               name = tag["name"]
-              if not name.startswith("v"):
-                  continue
-
+              if not name.startswith("v"): continue
               version = name[1:]
               parts = version.split(".")
-
-              if len(parts) != 3:
-                  continue
-
+              if len(parts) != 3: continue
               major, minor, patch = parts
-              if not (major.isdigit() and minor.isdigit() and patch.isdigit()):
-                  continue
-
+              if not (major.isdigit() and minor.isdigit() and patch.isdigit()): continue
               if int(minor) % 2 == 0:
-                  if not stable_version:
-                      stable_version = version
+                  if not stable_version: stable_version = version
               else:
-                  if not testing_version:
-                      testing_version = version
-
-              if stable_version and testing_version:
-                  break
+                  if not testing_version: testing_version = version
+              if stable_version and testing_version: break
 
           print(f"STABLE_VERSION={stable_version}")
           print(f"TESTING_VERSION={testing_version}")
           PYEOF
-
-          echo "Versões detectadas:"
-          echo "  stable:  $STABLE_VERSION"
-          echo "  testing: $TESTING_VERSION"
 
       - name: Criar estrutura do site APT
         run: |
@@ -90,26 +72,19 @@ jobs:
           python3 << 'PYEOF'
           import os, re
           from curl_cffi import requests
-
           version = os.environ["VERSION"]
           base = f"https://dcpomatic.com/dl?id=debian-13-x86&version={version}"
           s = requests.Session()
-
-          print(f"[stable] A descarregar {version}...")
           s.get(base + "&paid=0", impersonate="chrome")
           s.get(base + "&paid=0", impersonate="chrome")
           r = s.get(base, impersonate="chrome")
-
           cd = r.headers.get("content-disposition", "")
           m = re.search(r'filename="([^"]+)"', cd)
           filename = m.group(1) if m else f"dcpomatic_{version}_amd64.deb"
-
           if not r.content.startswith(b"!<arch>"):
               raise SystemExit("ERRO: ficheiro não é um .deb válido")
-
-          with open(filename, "wb") as f:
-              f.write(r.content)
-          print(f"[stable] Guardado: {filename} ({len(r.content)} bytes)")
+          with open(filename, "wb") as f: f.write(r.content)
+          print(f"[stable] {filename} ({len(r.content)} bytes)")
           PYEOF
 
       - name: Descarregar pacote testing
@@ -120,45 +95,27 @@ jobs:
           python3 << 'PYEOF'
           import os, re
           from curl_cffi import requests
-
           version = os.environ["VERSION"]
           base = f"https://dcpomatic.com/dl?id=debian-13-x86&version={version}"
           s = requests.Session()
-
-          print(f"[testing] A descarregar {version}...")
           s.get(base + "&paid=0", impersonate="chrome")
           s.get(base + "&paid=0", impersonate="chrome")
           r = s.get(base, impersonate="chrome")
-
           cd = r.headers.get("content-disposition", "")
           m = re.search(r'filename="([^"]+)"', cd)
           filename = m.group(1) if m else f"dcpomatic_{version}_amd64.deb"
-
           if not r.content.startswith(b"!<arch>"):
               raise SystemExit("ERRO: ficheiro não é um .deb válido")
-
-          with open(filename, "wb") as f:
-              f.write(r.content)
-          print(f"[testing] Guardado: {filename} ({len(r.content)} bytes)")
+          with open(filename, "wb") as f: f.write(r.content)
+          print(f"[testing] {filename} ({len(r.content)} bytes)")
           PYEOF
 
-      - name: Importar chave GPG e exportar pública
+      - name: Importar chave GPG
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          if [ -z "$GPG_PRIVATE_KEY" ]; then
-            echo "ERRO: segredo GPG_PRIVATE_KEY não definido."
-            exit 1
-          fi
-
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           GPG_KEY_ID="$(gpg --list-keys --with-colons | awk -F: '/^pub:/ {print $5; exit}')"
-
-          if [ -z "$GPG_KEY_ID" ]; then
-            echo "ERRO: não foi possível obter o ID da chave GPG."
-            exit 1
-          fi
-
           echo "GPG_KEY_ID=$GPG_KEY_ID" >> "$GITHUB_ENV"
           gpg --export --armor "$GPG_KEY_ID" > site/dcpomatic-apt.asc
 
@@ -169,10 +126,8 @@ jobs:
           cd site
           echo "$VERSION" > stable-version.txt
 
-          # Scan apenas do pool/stable (isolado do testing)
           dpkg-scanpackages pool/stable /dev/null 2>/dev/null \
             > dists/stable/main/binary-amd64/Packages
-
           gzip -9c dists/stable/main/binary-amd64/Packages \
             > dists/stable/main/binary-amd64/Packages.gz
 
@@ -187,13 +142,8 @@ jobs:
 
           cd dists/stable
           apt-ftparchive release -c=/tmp/ftp-stable.conf . > Release
-
           gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
-          cd ../..
-
-          echo "=== Stable Packages ==="
-          grep -E "^(Package|Version|Filename|Size|SHA256):" dists/stable/main/binary-amd64/Packages || true
 
       - name: Gerar metadados APT testing
         env:
@@ -202,10 +152,8 @@ jobs:
           cd site
           echo "$VERSION" > testing-version.txt
 
-          # Scan apenas do pool/testing (isolado do stable)
           dpkg-scanpackages pool/testing /dev/null 2>/dev/null \
             > dists/testing/main/binary-amd64/Packages
-
           gzip -9c dists/testing/main/binary-amd64/Packages \
             > dists/testing/main/binary-amd64/Packages.gz
 
@@ -220,28 +168,16 @@ jobs:
 
           cd dists/testing
           apt-ftparchive release -c=/tmp/ftp-testing.conf . > Release
-
           gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
-          cd ../..
-
-          echo "=== Testing Packages ==="
-          grep -E "^(Package|Version|Filename|Size|SHA256):" dists/testing/main/binary-amd64/Packages || true
-
-      - name: Mostrar estrutura final
-        run: |
-          cd site
-          echo "=== Estrutura final ==="
-          find . -type f -printf '%p %s bytes\n' | sort
 
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload do artifact do GitHub Pages
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
       - name: Publicar no GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4
