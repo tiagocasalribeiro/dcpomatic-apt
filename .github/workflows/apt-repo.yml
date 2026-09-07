@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -104,6 +104,46 @@ jobs:
           print(f"[testing] {filename} ({len(r.content)} bytes)")
           PYEOF
 
+      - name: Obter changelog stable
+        env:
+          VERSION: ${{ steps.get_versions.outputs.STABLE_VERSION }}
+        run: |
+          python3 << 'PYEOF'
+          import os, re
+          from curl_cffi import requests
+          version = os.environ["VERSION"]
+          url = f"https://dcpomatic.com/release-notes?v={version}"
+          s = requests.Session()
+          r = s.get(url, impersonate="chrome")
+          match = re.search(rf'##\s*Version\s*{re.escape(version)}\s*\n(.*?)(?=\n##\s*Version|\Z)', r.text, re.DOTALL | re.IGNORECASE)
+          changelog = match.group(1).strip() if match else f"Changelog não encontrado. Verifique: {url}"
+          with open("changelog-stable.md", "w", encoding="utf-8") as f:
+              f.write(f"**Versão:** {version}\n\n")
+              f.write(f"**Link:** {url}\n\n")
+              f.write("**Alterações:**\n")
+              f.write(changelog)
+          PYEOF
+
+      - name: Obter changelog testing
+        env:
+          VERSION: ${{ steps.get_versions.outputs.TESTING_VERSION }}
+        run: |
+          python3 << 'PYEOF'
+          import os, re
+          from curl_cffi import requests
+          version = os.environ["VERSION"]
+          url = f"https://dcpomatic.com/release-notes?v={version}"
+          s = requests.Session()
+          r = s.get(url, impersonate="chrome")
+          match = re.search(rf'##\s*Version\s*{re.escape(version)}\s*\n(.*?)(?=\n##\s*Version|\Z)', r.text, re.DOTALL | re.IGNORECASE)
+          changelog = match.group(1).strip() if match else f"Changelog não encontrado. Verifique: {url}"
+          with open("changelog-testing.md", "w", encoding="utf-8") as f:
+              f.write(f"**Versão:** {version}\n\n")
+              f.write(f"**Link:** {url}\n\n")
+              f.write("**Alterações:**\n")
+              f.write(changelog)
+          PYEOF
+
       - name: Importar chave GPG
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -164,6 +204,28 @@ jobs:
           apt-ftparchive release -c=/tmp/ftp-testing.conf . > Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
+
+      - name: Publicar Release Stable
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_versions.outputs.STABLE_VERSION }}
+          name: DCP-o-matic Stable ${{ steps.get_versions.outputs.STABLE_VERSION }}
+          body_path: changelog-stable.md
+          files: site/pool/stable/main/d/dcpomatic/*.deb
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar Release Testing
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: testing-v${{ steps.get_versions.outputs.TESTING_VERSION }}
+          name: DCP-o-matic Testing ${{ steps.get_versions.outputs.TESTING_VERSION }}
+          body_path: changelog-testing.md
+          files: site/pool/testing/main/d/dcpomatic/*.deb
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
