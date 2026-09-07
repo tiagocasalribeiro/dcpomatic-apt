@@ -115,12 +115,27 @@ jobs:
           url = f"https://dcpomatic.com/release-notes?v={version}"
           s = requests.Session()
           r = s.get(url, impersonate="chrome")
-          match = re.search(rf'##\s*Version\s*{re.escape(version)}\s*\n(.*?)(?=\n##\s*Version|\Z)', r.text, re.DOTALL | re.IGNORECASE)
-          changelog = match.group(1).strip() if match else f"Changelog não encontrado. Verifique: {url}"
+          
+          # Procura o bloco HTML da versão e para antes da próxima versão ou da secção de patronos
+          match = re.search(rf'<h2>Version\s+{re.escape(version)}</h2>(.*?)(?=<h2>Version|<p>Thanks to our patron:|<table|\Z)', r.text, re.DOTALL | re.IGNORECASE)
+          if match:
+              html = match.group(1)
+              # Converte HTML básico para Markdown limpo
+              text = re.sub(r'<h3>(.*?)</h3>', r'\n### \1\n', html, flags=re.IGNORECASE)
+              text = re.sub(r'<li>(.*?)</li>', r'- \1\n', text, flags=re.IGNORECASE | re.DOTALL)
+              text = re.sub(r'</?ul>', '', text, flags=re.IGNORECASE)
+              text = re.sub(r'</?p>', '\n', text, flags=re.IGNORECASE)
+              text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+              text = re.sub(r'<[^>]+>', '', text) # Remove quaisquer tags restantes
+              text = re.sub(r'\n\s*\n', '\n', text).strip()
+              changelog = text
+          else:
+              changelog = f"Changelog não encontrado. Verifique: {url}"
+          
           with open("changelog-stable.md", "w", encoding="utf-8") as f:
               f.write(f"**Versão:** {version}\n\n")
               f.write(f"**Link:** {url}\n\n")
-              f.write("**Alterações:**\n")
+              f.write("**Alterações:**\n\n")
               f.write(changelog)
           PYEOF
 
@@ -135,12 +150,25 @@ jobs:
           url = f"https://dcpomatic.com/release-notes?v={version}"
           s = requests.Session()
           r = s.get(url, impersonate="chrome")
-          match = re.search(rf'##\s*Version\s*{re.escape(version)}\s*\n(.*?)(?=\n##\s*Version|\Z)', r.text, re.DOTALL | re.IGNORECASE)
-          changelog = match.group(1).strip() if match else f"Changelog não encontrado. Verifique: {url}"
+          
+          match = re.search(rf'<h2>Version\s+{re.escape(version)}</h2>(.*?)(?=<h2>Version|<p>Thanks to our patron:|<table|\Z)', r.text, re.DOTALL | re.IGNORECASE)
+          if match:
+              html = match.group(1)
+              text = re.sub(r'<h3>(.*?)</h3>', r'\n### \1\n', html, flags=re.IGNORECASE)
+              text = re.sub(r'<li>(.*?)</li>', r'- \1\n', text, flags=re.IGNORECASE | re.DOTALL)
+              text = re.sub(r'</?ul>', '', text, flags=re.IGNORECASE)
+              text = re.sub(r'</?p>', '\n', text, flags=re.IGNORECASE)
+              text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+              text = re.sub(r'<[^>]+>', '', text)
+              text = re.sub(r'\n\s*\n', '\n', text).strip()
+              changelog = text
+          else:
+              changelog = f"Changelog não encontrado. Verifique: {url}"
+          
           with open("changelog-testing.md", "w", encoding="utf-8") as f:
               f.write(f"**Versão:** {version}\n\n")
               f.write(f"**Link:** {url}\n\n")
-              f.write("**Alterações:**\n")
+              f.write("**Alterações:**\n\n")
               f.write(changelog)
           PYEOF
 
